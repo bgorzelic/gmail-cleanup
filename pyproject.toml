@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "gmail-cleanup"
-version = "0.3.1"
+version = "0.4.0"
 description = "Safety-first CLI for reclaiming a Gmail inbox — one-click unsubscribe, declarative filters, KEEP-list protection."
 readme = "README.md"
 license = { file = "LICENSE" }

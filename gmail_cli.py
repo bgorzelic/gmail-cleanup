@@ -706,11 +706,22 @@ def _build_filter_preset(gmail: 'GmailCLI') -> List[Dict[str, Any]]:
     ]
 
 
+# Filter actions that mean "this is a protect/route filter, leave alone"
+_PROTECT_LABEL_IDS = {'STARRED', 'IMPORTANT'}
+_TRASH_LABEL_IDS = {'TRASH', 'SPAM'}
+
+
 def _upgrade_existing_filters(
     gmail: 'GmailCLI',
     dry_run: bool = False,
 ) -> Tuple[int, int]:
-    """Find existing label-only filters and recreate them with INBOX removal added.
+    """Add INBOX and UNREAD removal to label-and-archive filters.
+
+    Skips:
+    - protect filters (whitelist-humans pattern: adds STARRED/IMPORTANT)
+    - trash/block filters (adds TRASH/SPAM — they're already handling their own routing)
+    - filters with no label add (nothing to categorize as)
+    - filters that already have both INBOX and UNREAD in remove (already optimal)
 
     Returns (upgraded_count, skipped_count).
     """
@@ -720,14 +731,28 @@ def _upgrade_existing_filters(
     for f in existing:
         action = f.get('action', {})
         add_labels = action.get('addLabelIds', [])
-        remove_labels = action.get('removeLabelIds', [])
-        # Only upgrade filters that apply labels but don't archive.
-        if not add_labels or 'INBOX' in remove_labels:
+        remove_labels = set(action.get('removeLabelIds', []))
+        add_set = set(add_labels)
+        # Skip protect filters (whitelist-humans) — these should keep mail in inbox.
+        if add_set & _PROTECT_LABEL_IDS:
             skipped += 1
             continue
+        # Skip trash/block filters — they manage their own state.
+        if add_set & _TRASH_LABEL_IDS:
+            skipped += 1
+            continue
+        # Skip filters that don't apply a label.
+        if not add_labels:
+            skipped += 1
+            continue
+        # Already at target state.
+        if {'INBOX', 'UNREAD'}.issubset(remove_labels):
+            skipped += 1
+            continue
+        new_remove = sorted(remove_labels | {'INBOX', 'UNREAD'})
         new_action = {
             'addLabelIds': add_labels,
-            'removeLabelIds': list(set(remove_labels + ['INBOX'])),
+            'removeLabelIds': new_remove,
         }
         if action.get('forward'):
             new_action['forward'] = action['forward']
@@ -735,7 +760,7 @@ def _upgrade_existing_filters(
         from_preview = (f.get('criteria', {}).get('from', '')
                         or f.get('criteria', {}).get('query', ''))[:60]
         if dry_run:
-            print(f"  UPGRADE: +archive  labels={label_preview}  from={from_preview}...")
+            print(f"  UPGRADE: +archive+read  labels={label_preview}  from={from_preview}...")
             upgraded += 1
             continue
         try:
@@ -956,6 +981,99 @@ def cmd_verify(args):
     print(f"   Failed:                {failed}")
 
 
+def cmd_autopilot(args):
+    """Run the full safe-by-default cleanup workflow in one shot.
+
+    Sequence:
+      1. filters apply       → upgrade existing + create preset (idempotent)
+      2. unsubscribe         → kill noise from the last 30 days, min-count 2
+      3. mark-read           → clear the archived-but-unread backlog
+      4. verify              → check stickiness; optionally escalate stuck senders
+
+    Safe to run repeatedly. Use --dry-run to preview without taking action.
+    """
+    from argparse import Namespace
+
+    print("🤖 gmail-cleanup autopilot — full inbox cleanup\n")
+    print("=" * 72)
+
+    print("\n━━━ Phase 1/4: Apply Gmail filters ━━━\n")
+    cmd_filters(Namespace(
+        email=args.email,
+        subaction='apply',
+        dry_run=args.dry_run,
+    ))
+
+    print("\n━━━ Phase 2/4: Unsubscribe noise senders (last 30d, min-count 2) ━━━\n")
+    cmd_unsubscribe(Namespace(
+        email=args.email,
+        days=30,
+        min_count=2,
+        limit=2000,
+        dry_run=args.dry_run,
+        no_archive=False,
+        delete=False,
+    ))
+
+    if args.dry_run:
+        print("\n🔍 Dry run — skipping phases 3 and 4 (mark-read, verify).")
+        print("\n" + "=" * 72)
+        print("🤖 Autopilot dry-run complete. Remove --dry-run to execute.")
+        return
+
+    print("\n━━━ Phase 3/4: Mark archived-unread as read ━━━\n")
+    cmd_mark_read(Namespace(
+        email=args.email,
+        query='is:unread -in:inbox',
+        limit=10000,
+        yes=True,
+    ))
+
+    print("\n━━━ Phase 4/4: Verify previously-unsubscribed senders ━━━\n")
+    cmd_verify(Namespace(
+        email=args.email,
+        days=14,
+        since=None,
+        limit=100,
+        escalate=args.escalate,
+    ))
+
+    print("\n" + "=" * 72)
+    print("🎉 Autopilot complete. Inbox state:\n")
+    cmd_stats(Namespace(email=args.email))
+
+
+def cmd_mark_read(args):
+    """Bulk-mark matching messages as read."""
+    gmail = GmailCLI(args.email)
+
+    query = args.query
+    print(f"🔍 Searching for unread messages matching: {query}\n")
+    messages = gmail.search_messages(query, max_results=args.limit)
+
+    if not messages:
+        print("✅ No unread messages match — nothing to do.")
+        return
+
+    print(f"Found {len(messages):,} unread messages.")
+
+    if not args.yes:
+        response = input(f"\n📖 Mark all {len(messages):,} as read? (yes/no): ")
+        if response.lower() not in ['yes', 'y']:
+            print("❌ Cancelled")
+            return
+
+    print("\n📖 Marking as read...")
+    batch_size = 1000
+    for i in range(0, len(messages), batch_size):
+        batch = messages[i:i + batch_size]
+        msg_ids = [msg['id'] for msg in batch]
+        gmail.batch_modify_messages(msg_ids, remove_labels=['UNREAD'])
+        print(f"   {min(i + batch_size, len(messages)):,}/{len(messages):,}", end='\r')
+
+    print(f"\n✅ Marked {len(messages):,} messages as read.")
+
+
 def cmd_archive(args):
     """Archive emails matching criteria"""
     gmail = GmailCLI(args.email)
@@ -1168,6 +1286,17 @@ Examples:
 
     subparsers = parser.add_subparsers(dest='command', help='Command to run')
 
+    # Autopilot command — the Swiss army knife "do everything" entry point
+    parser_auto = subparsers.add_parser(
+        'autopilot',
+        help='One-command cleanup: apply filters → unsubscribe → mark-read → verify',
+    )
+    parser_auto.add_argument('--dry-run', action='store_true',
+                             help='Preview without taking action (skips mark-read + verify)')
+    parser_auto.add_argument('--escalate', action='store_true',
+                             help='In phase 4, auto-create block filters for stuck senders')
+    parser_auto.set_defaults(func=cmd_autopilot)
+
     # Stats command
     parser_stats = subparsers.add_parser('stats', help='Show inbox statistics')
     parser_stats.set_defaults(func=cmd_stats)
@@ -1238,6 +1367,20 @@ Examples:
     parser_verify.add_argument('--escalate', action='store_true',
                                help='Auto-create a block filter (auto-trash) for each stuck sender')
     parser_verify.set_defaults(func=cmd_verify)
+
+    # Mark-read command — clean up the archived-but-unread backlog
+    parser_mark_read = subparsers.add_parser(
+        'mark-read',
+        help='Bulk-mark matching messages as read (e.g., archived-unread backlog)',
+    )
+    parser_mark_read.add_argument('--query', default='is:unread -in:inbox',
+                                  help="Gmail search query (default: 'is:unread -in:inbox' — "
+                                       "everything archived and unread)")
+    parser_mark_read.add_argument('--limit', type=int, default=10000,
+                                  help='Max messages to mark (default: 10000)')
+    parser_mark_read.add_argument('--yes', action='store_true',
+                                  help='Skip confirmation prompt')
+    parser_mark_read.set_defaults(func=cmd_mark_read)
 
     # Archive command
     parser_archive = subparsers.add_parser('archive', help='Archive emails')

@@ -4,6 +4,30 @@ All notable changes to this project. Format loosely based on [Keep a Changelog](
 
 ## [Unreleased]
 
+## [0.4.0] — 2026-05-15
+
+The "Swiss army knife with an autopilot button" release.
+
+### Added
+- **`autopilot` subcommand.** One command runs the full safe-by-default cleanup pipeline in four phases:
+  1. `filters apply` — upgrade existing + create preset (idempotent)
+  2. `unsubscribe --days 30 --min-count 2` — kill recent noise
+  3. `mark-read --query "is:unread -in:inbox"` — clear the archived-but-unread backlog
+  4. `verify` — audit stickiness; `--escalate` to auto-block stuck senders
+  - Supports `--dry-run` (skips destructive phases 3+4) and `--escalate`. Safe to run repeatedly.
+- **`mark-read` subcommand.** Bulk-mark messages as read by query. Default query (`is:unread -in:inbox`) targets the archived-but-unread backlog that piles up after filter routing. Found and cleared 4,710 stale unreads on the maintainer's account in one shot.
+- **3 new entries in `lists/kill.yaml`:** `skool.com`, `invitations@linkedin.com`, `noreply@discord.com` — top non-killlist offenders from 14-day trend data.
+
+### Changed
+- **Filter upgrades now also remove `UNREAD`.** Previously the existing-filter upgrade only added `INBOX` removal (archive but stay unread). Now label-and-archive filters also clear `UNREAD`, so categorized mail counts toward "read" automatically. Protect filters (whitelist-humans pattern: adds `STARRED`/`IMPORTANT`) and trash/block filters are explicitly skipped.
+- **`lists/keep.yaml`:** removed `noreply@skool.com` (was protecting 76 emails/14d of noise) — Skool is now killlist-eligible.
+
+### Performance / state delta on maintainer's account
+- Inbox: 165 → 144 (-21, after another aggressive unsubscribe pass)
+- **Unread total: 4,858 → 150 (-4,708, -97%)**
+- Filters active: 14 → 15 (one extra killlist filter created because the criteria changed when 3 entries were added)
+- Storage: 8.2 MB → 7.2 MB
+
 ## [0.3.1] — 2026-05-15
 
 The "found in a clean-room install audit" fix. No behavior changes for repo users; major UX improvement for anyone who installs via `pip install`.

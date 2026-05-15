@@ -7,7 +7,7 @@
 
 # Explicit KEEP entries (verified important automation)
 - notifications@github.com
-- noreply@skool.com
+# noreply@skool.com — removed 2026-05-15 (76 emails/14d, autopilot decision)
 - notice@email.navyfederal.org
 - calendar-notification@google.com
 - info@members.netflix.com

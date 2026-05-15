@@ -12,22 +12,41 @@ Most Gmail "cleanup" tools either (a) leave the work to you or (b) blast through
 
 Everything is auditable. Every action is reversible. The KEEP list overrides any "delete this sender" instruction.
 
-## What it can do
+## The one-command flow
+
+```bash
+gmail-cleanup --email you@gmail.com autopilot
+```
+
+That runs the full safe-by-default pipeline:
+
+1. **Apply filters** — declare your categorization rules to Gmail (idempotent)
+2. **Unsubscribe** — find noise senders from the last 30 days, hit their one-click unsub, archive
+3. **Mark-read** — clear the archived-but-unread backlog
+4. **Verify** — audit yesterday's unsubscribes; flag anything still arriving
+
+Safe to run repeatedly. Add `--dry-run` to preview, or `--escalate` to auto-create block filters for senders that ignored their unsubscribe.
+
+## Individual commands
+
+For when you want surgical control:
 
 | Command | What it does |
 |---|---|
+| `autopilot` | Full pipeline: filters → unsubscribe → mark-read → verify. The "Swiss army knife" entry point. |
 | `stats` | Inbox count, unread, storage, oldest email |
 | `top-senders --days N` | Rank senders by volume over the last N days |
 | `subscriptions` | Find senders with List-Unsubscribe headers |
 | `unsubscribe --days N --min-count K` | Auto-discover noise senders, hit their one-click unsub, archive their inbox messages |
-| `verify --since YYYY-MM-DD [--escalate]` | Check whether previously-unsubscribed senders are still arriving. Optionally auto-create a Gmail block filter (auto-trash) for stuck senders. |
-| `filters apply` | Create/upgrade Gmail filters with archive action |
+| `mark-read --query Q` | Bulk-mark matching messages as read (default: archived-but-unread backlog) |
+| `verify --since YYYY-MM-DD [--escalate]` | Check whether previously-unsubscribed senders are still arriving. Optionally auto-create a Gmail block filter for stuck senders. |
+| `filters apply` | Create/upgrade Gmail filters with label + archive + mark-read |
 | `filters list` | List existing filters |
 | `archive` | Bulk archive by sender / category / label / query / age |
 | `delete` | Move to trash by same criteria |
 | `label` | Create and apply labels |
 
-All destructive commands prompt for confirmation unless you pass `--yes`. `unsubscribe` and `filters apply` both support `--dry-run`.
+All destructive commands prompt for confirmation unless you pass `--yes`. `autopilot`, `unsubscribe`, and `filters apply` all support `--dry-run`.
 
 ## Install
 
@@ -60,24 +79,21 @@ Required OAuth scopes:
 ## Quick start
 
 ```bash
-# What's the damage?
+# See what's there
 gmail-cleanup --email you@gmail.com stats
-gmail-cleanup --email you@gmail.com top-senders --days 14 --count 30
+gmail-cleanup --email you@gmail.com top-senders --days 14
 
-# Preview a cleanup pass
-gmail-cleanup --email you@gmail.com unsubscribe --days 30 --min-count 3 --dry-run
+# Preview the autopilot
+gmail-cleanup --email you@gmail.com autopilot --dry-run
 
-# Pull the trigger
-gmail-cleanup --email you@gmail.com unsubscribe --days 30 --min-count 3
+# Run it
+gmail-cleanup --email you@gmail.com autopilot
 
-# Set up declarative filters so this doesn't happen again
-gmail-cleanup --email you@gmail.com filters apply --dry-run
-gmail-cleanup --email you@gmail.com filters apply
-
-# Two weeks later: did the unsubscribes actually stick?
-gmail-cleanup --email you@gmail.com verify --since 2026-05-15
-gmail-cleanup --email you@gmail.com verify --since 2026-05-15 --escalate   # auto-block any stuck senders
+# Two weeks later — re-run autopilot, with escalation for any stuck senders
+gmail-cleanup --email you@gmail.com autopilot --escalate
 ```
+
+For surgical control, the individual subcommands (above) all work standalone. Autopilot is just a convenience composition.
 
 ## Safety model
 
