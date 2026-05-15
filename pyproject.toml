@@ -1,0 +1,84 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "gmail-cleanup"
+version = "0.3.0"
+description = "Safety-first CLI for reclaiming a Gmail inbox — one-click unsubscribe, declarative filters, KEEP-list protection."
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.11"
+authors = [{ name = "Brian Gorzelic" }]
+keywords = ["gmail", "email", "cli", "unsubscribe", "inbox", "automation"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Communications :: Email",
+    "Topic :: Utilities",
+]
+dependencies = [
+    "google-auth>=2.34.0",
+    "google-auth-oauthlib>=1.2.1",
+    "google-auth-httplib2>=0.2.0",
+    "google-api-python-client>=2.149.0",
+    "PyYAML>=6.0.2",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.6",
+]
+
+[project.scripts]
+gmail-cleanup = "gmail_cli:main"
+
+[project.urls]
+Homepage = "https://github.com/bgorzelic/gmail-cleanup"
+Issues = "https://github.com/bgorzelic/gmail-cleanup/issues"
+
+[tool.hatch.build.targets.wheel]
+# Ship the CLI module plus the YAML lists alongside it.
+include = ["gmail_cli.py", "lists/**/*.yaml", "lists/README.md"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "gmail_cli.py",
+    "lists/**",
+    "tests/**",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md",
+    "ROADMAP.md",
+    "requirements.txt",
+    "requirements-dev.txt",
+    "pyproject.toml",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM"]
+ignore = [
+    "E501",  # line-too-long — handled by formatter, false positives in long strings
+    "B008",  # function call in default arg — argparse default=datetime.now() pattern
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["B011"]  # asserts in tests are fine

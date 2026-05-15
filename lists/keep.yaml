@@ -1,0 +1,63 @@
+# KEEP list — senders the unsubscribe command refuses to touch.
+#
+# Substring-matched against the lowercased sender email. False positives are
+# intentional — better to miss an unsub than to silently kill a bank alert or
+# a fraud notification. If something here is too aggressive for your use case,
+# remove the entry and re-run.
+
+# Explicit KEEP entries (verified important automation)
+- notifications@github.com
+- noreply@skool.com
+- notice@email.navyfederal.org
+- calendar-notification@google.com
+- info@members.netflix.com
+- service@paypal.com
+- fidelity.investments@mail.fidelity.com
+
+# GitHub broad — account/security/billing all flow through noreply@github.com.
+# (GitHub unsubscribe links typically require a logged-in session and won't
+# work standalone, so the filter+archive route is the right way to silence them.)
+- github.com
+
+# Financial — banks, credit, payments, brokerage.
+- bank
+- credit
+- fidelity
+- paypal
+- venmo
+- klarna
+- chase.com
+- robinhood
+- applecard
+- navyfederal
+- veteransunited
+- mortgage
+- experian
+- transunion
+- equifax
+- toyotafinancial
+- irs.gov
+
+# Healthcare / insurance.
+- kp.org
+- kaiser
+- va.gov
+- unum.com
+- anthem.com
+- bcbs
+- healthcare
+- medical
+- medicare
+- medicaid
+
+# Government / legal.
+- .gov
+- edd.ca.gov
+- ssa.gov
+
+# Security / account protection.
+- accounts.google.com
+- accountprotection
+- account-security
+- security-noreply
+- no-reply@accounts

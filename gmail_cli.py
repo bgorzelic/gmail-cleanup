@@ -22,6 +22,8 @@ from typing import List, Dict, Any, Optional, Tuple
 from collections import defaultdict
 from datetime import datetime, timedelta
 
+import yaml
+
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -37,68 +39,33 @@ SCOPES = [
     'https://www.googleapis.com/auth/gmail.settings.basic',
 ]
 
-# Vetted noise-sender kill list from project memory (gmail-cleanup-kill-list).
-# Matched as substring against the sender's email/domain.
-VETTED_KILL_LIST = [
-    'localflirt.com', 'careerbuilder.com', 'tldrnewsletter.com', 'seekingalpha.com',
-    'tiktok.com', 'e.dcsg.com', 'jobalerts-noreply@linkedin.com', 'mail.beehiiv.com',
-    'theladders.com', 'gruntstyle.com', 'email.dailywire.com', 'smartbrief.com',
-    'joinreframeapp.com', 'pxsmail.com', 'medium.com', 'email.rocketmoney.com',
-    'heartmind.co', 'hometalk.com', 'mail.horoscope.com', 'big5sportinggoods.com',
-    'email.bestbuy.com', 'substack.com', 'elephantstock.com', 'lenscrafters.com',
-    'theresanaiforthat.com', 'flipboard.com', 'e-offers.dominos.com',
-    'intheworldofai.com', 'us-news.comms.adidas.com', 'm.popeyes.com',
-    'e.bigblanket.com', 'pm.oann.com', 'hint.app',
-]
-
-# Senders/domains to NEVER unsubscribe from. Substring-matched against the
-# lowercased sender email. Covers financial, healthcare, government, security,
-# and explicit KEEP entries from project memory. False positives are intentional
-# — better to miss an unsub than to silently kill a bank alert.
-UNSUB_KEEP_LIST = [
-    # Explicit KEEP from memory (gmail-cleanup-kill-list).
-    'notifications@github.com', 'noreply@skool.com', 'notice@email.navyfederal.org',
-    'calendar-notification@google.com', 'info@members.netflix.com',
-    'service@paypal.com', 'fidelity.investments@mail.fidelity.com',
-    # GitHub account/security/billing email also goes through noreply@github.com.
-    'github.com',
-    # Financial — banks, credit, payments, brokerage.
-    'bank', 'credit', 'fidelity', 'paypal', 'venmo', 'klarna', 'chase.com',
-    'robinhood', 'applecard', 'navyfederal', 'veteransunited', 'mortgage',
-    'experian', 'transunion', 'equifax', 'toyotafinancial', 'irs.gov',
-    # Healthcare / insurance.
-    'kp.org', 'kaiser', 'va.gov', 'unum.com', 'anthem.com', 'bcbs',
-    'healthcare', 'medical', 'medicare', 'medicaid',
-    # Government / legal.
-    '.gov', 'edd.ca.gov', 'ssa.gov',
-    # Security / account protection.
-    'accounts.google.com', 'accountprotection', 'account-security',
-    'security-noreply', 'no-reply@accounts',
-]
-
 # HTTP request settings for unsubscribe link execution
 UNSUB_HTTP_TIMEOUT = 5  # seconds
 UNSUB_USER_AGENT = 'Mozilla/5.0 (compatible; gmail-cli-unsubscribe/1.0)'
 
-# Real-human correspondents to whitelist in auto-archive filters.
-# Source: memory [[project_correspondence_keep_list]] (2026-05-14 sweep).
-HUMANS_WHITELIST = [
-    'ekg0@lehigh.edu', 'andreasfisrael@gmail.com', 'chris.gorzelic@gmail.com',
-    '101stabninf88@gmail.com', 'telcobill@gmail.com', 'golfprojulie@gmail.com',
-    'reglet_330@yahoo.com', 'sifu@d0j0s.com', 'nramirez@vahouse.org',
-    'vswitzer@vahouse.org',
-]
+# Configurable lists live in lists/*.yaml. Users edit them without touching code.
+LISTS_DIR = Path(__file__).parent / 'lists'
 
-# Senders we unsubscribed from on 2026-05-14 — if they still send, archive.
-UNSUBBED_SENDERS = [
-    'support@botbuilders.com', 'astro@forwardfuture.ai', 'noreply@glassdoor.com',
-    'kyle@webdevsimplified.com', 'nfl@email.nfl.com', 'noreply@reminder.eventbrite.com',
-    'noreply@mixcloudmail.com', 'announcements@jimmyjohns.com', 'team@news.wakingup.com',
-    'support@stockcharts.com', 'hello@jackarcher.com', 'noreply@email.amctheatres.com',
-    'eyecontact@fuselenses.com', 'support@ottocast.com', 'email@mygovwatch.com',
-    'hello@send.vidiq.com', 'updates-en@newsletter.printful.com', 'support@butcherbox.com',
-    'support@localflirt.com', 'jobalerts-noreply@linkedin.com',
-]
+
+def _load_list(name: str) -> List[str]:
+    """Load a YAML list file from lists/. Returns [] if missing.
+
+    Raises ValueError if the file exists but isn't a top-level YAML list.
+    """
+    path = LISTS_DIR / f'{name}.yaml'
+    if not path.exists():
+        return []
+    with open(path) as f:
+        data = yaml.safe_load(f) or []
+    if not isinstance(data, list):
+        raise ValueError(f"{path} must be a top-level YAML list (got {type(data).__name__})")
+    return [str(x).strip() for x in data if x and str(x).strip()]
+
+
+VETTED_KILL_LIST = _load_list('kill')
+UNSUB_KEEP_LIST = _load_list('keep')
+HUMANS_WHITELIST = _load_list('humans')
+UNSUBBED_SENDERS = _load_list('unsubbed')
 
 # Credentials directory
 CREDS_DIR = Path.home() / '.gmail_cli'
@@ -758,6 +725,35 @@ def _list_filters(gmail: 'GmailCLI') -> List[Dict[str, Any]]:
         return []
 
 
+def _create_block_filter(gmail: 'GmailCLI', sender: str) -> bool:
+    """Create a Gmail filter that auto-trashes mail from `sender`.
+
+    Used as escalation when an unsubscribe failed to stick. Returns True on
+    success, False on failure. Skips creation if an equivalent filter already
+    exists.
+    """
+    # Dedup against existing filters with the same from: criterion.
+    for f in _list_filters(gmail):
+        crit = f.get('criteria', {})
+        if crit.get('from', '').strip().lower() == sender.strip().lower():
+            return True  # already blocked
+    try:
+        gmail.service.users().settings().filters().create(
+            userId='me',
+            body={
+                'criteria': {'from': sender},
+                'action': {
+                    'addLabelIds': ['TRASH'],
+                    'removeLabelIds': ['INBOX', 'UNREAD'],
+                },
+            },
+        ).execute()
+        return True
+    except HttpError as e:
+        print(f"  ❌ failed to create block filter for {sender}: {e}")
+        return False
+
+
 def cmd_filters(args):
     """Create/list/delete Gmail filters."""
     gmail = GmailCLI(args.email)
@@ -857,6 +853,69 @@ def cmd_filters(args):
     print(f"   New created:        {created}")
     print(f"   Skipped (dup):      {skipped_preset}")
     print(f"   Failed:             {failed}")
+
+
+def cmd_verify(args):
+    """Verify previously-unsubscribed senders are silent. Optionally escalate."""
+    gmail = GmailCLI(args.email)
+
+    if not UNSUBBED_SENDERS:
+        print("ℹ️  lists/unsubbed.yaml is empty — nothing to verify.")
+        return
+
+    # --since wins over --days for precision (counts only mail arrived after that date).
+    if args.since:
+        window = f'after:{args.since.replace("-", "/")}'
+        window_desc = f"since {args.since}"
+    else:
+        window = f'newer_than:{args.days}d'
+        window_desc = f"the last {args.days} days"
+
+    print(f"🔍 Verifying {len(UNSUBBED_SENDERS)} previously-unsubscribed senders "
+          f"against {window_desc}...\n")
+
+    stuck = []  # (sender, count)
+    silent = []
+    for sender in UNSUBBED_SENDERS:
+        query = f'from:{sender} {window}'
+        messages = gmail.search_messages(query, max_results=args.limit)
+        count = len(messages)
+        if count > 0:
+            stuck.append((sender, count))
+        else:
+            silent.append(sender)
+
+    # Sort stuck by message count, descending.
+    stuck.sort(key=lambda t: t[1], reverse=True)
+
+    if stuck:
+        print(f"❌ STUCK — {len(stuck)} senders still arriving:")
+        for sender, count in stuck:
+            print(f"   {count:>4}  {sender}")
+        print()
+    print(f"✅ SILENT — {len(silent)} unsubscribes appear to have stuck.")
+
+    if not stuck:
+        return
+
+    if not args.escalate:
+        print("\n💡 Re-run with --escalate to auto-create block filters "
+              "(auto-trash) for stuck senders.")
+        return
+
+    print(f"\n⚠️  Escalating {len(stuck)} stuck senders → creating block filters...\n")
+    blocked = 0
+    failed = 0
+    for sender, count in stuck:
+        if _create_block_filter(gmail, sender):
+            print(f"  ✅ blocked  {sender}  ({count} msgs in window)")
+            blocked += 1
+        else:
+            failed += 1
+
+    print(f"\n📊 Escalation summary:")
+    print(f"   Block filters created: {blocked}")
+    print(f"   Failed:                {failed}")
 
 
 def cmd_archive(args):
@@ -1125,6 +1184,22 @@ Examples:
     fs_del.add_argument('--id', required=True, help='Filter ID, or "all" to delete every filter')
     fs_del.add_argument('--yes', action='store_true', help='Skip confirmation when --id=all')
     parser_filters.set_defaults(func=cmd_filters, subaction='apply', dry_run=False)
+
+    # Verify command (stickiness check for previously-unsubscribed senders)
+    parser_verify = subparsers.add_parser(
+        'verify',
+        help='Check whether previously-unsubscribed senders are still arriving',
+    )
+    parser_verify.add_argument('--days', type=int, default=14,
+                               help='Window to check, in days (default: 14)')
+    parser_verify.add_argument('--since',
+                               help='Only count mail arrived after this date (YYYY-MM-DD). '
+                                    'More precise than --days for verifying a specific unsubscribe run.')
+    parser_verify.add_argument('--limit', type=int, default=100,
+                               help='Max messages to count per sender (default: 100)')
+    parser_verify.add_argument('--escalate', action='store_true',
+                               help='Auto-create a block filter (auto-trash) for each stuck sender')
+    parser_verify.set_defaults(func=cmd_verify)
 
     # Archive command
     parser_archive = subparsers.add_parser('archive', help='Archive emails')

@@ -4,6 +4,25 @@ All notable changes to this project. Format loosely based on [Keep a Changelog](
 
 ## [Unreleased]
 
+## [0.3.0] — 2026-05-15
+
+The "buttoned-up" pass. Repo turns from a working script into a productizable tool.
+
+### Added
+- **Lists in YAML.** `VETTED_KILL_LIST`, `UNSUB_KEEP_LIST`, `HUMANS_WHITELIST`, `UNSUBBED_SENDERS` extracted to `lists/*.yaml`. Users edit YAML, no Python required. New `_load_list()` helper validates the file is a top-level list, strips whitespace, skips empty entries.
+- **`verify` subcommand.** Checks whether previously-unsubscribed senders are still arriving. Flags: `--days N` (default 14), `--since YYYY-MM-DD` (precision mode), `--escalate` (auto-create a Gmail block filter for each stuck sender).
+- **Block-filter escalation.** `_create_block_filter()` helper creates a Gmail filter that auto-trashes (move to TRASH + remove from INBOX) a specific sender. Deduplicates against existing filters by `from:` criterion. Used by `verify --escalate`.
+- **Test suite.** 46 pytest tests covering `_load_list`, `_extract_email`, `_parse_list_unsubscribe`, `_humans_exclusion`, KEEP-list substring semantics, and the shipped list files for duplicates / structure / critical-substring presence.
+- **Packaging.** `pyproject.toml` (hatchling backend), console script entry point `gmail-cleanup`, optional `[dev]` extras (pytest + ruff). `pip install -e .` works.
+- **Docs.** `CONTRIBUTING.md` (project values, setup, commit conventions), `CODE_OF_CONDUCT.md` (Contributor Covenant 2.1), `lists/README.md` (conflict-resolution rules), README rewrite using the new console-script entry point.
+
+### Changed
+- README usage examples now use `gmail-cleanup` instead of `./gmail_cli.py`
+- Safety-model section in README points at the four `lists/*.yaml` files instead of in-source constants
+
+### Verified
+- 19/20 of the 2026-05-14 cohort unsubscribes appear to have stuck (90% rate) when scoped to post-unsub window with `verify --since 2026-05-15`. Two confirmed stuck: `noreply@glassdoor.com`, `jobalerts-noreply@linkedin.com` — candidates for `--escalate`.
+
 ## [0.2.0] — 2026-05-15
 
 The "filters and verification" pass. Where the tool gained the declarative side.

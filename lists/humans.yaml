@@ -1,0 +1,21 @@
+# Human whitelist — real correspondents.
+#
+# These addresses get protective treatment in the filter preset:
+#   - starred
+#   - marked important
+#   - shielded from spam folder
+#
+# They are also excluded from the `has:list` newsletter catch-all so a real
+# person's mail never gets auto-archived if it happens to carry a List-Unsubscribe
+# header (some mailing-list-like personal newsletters do).
+
+- ekg0@lehigh.edu
+- andreasfisrael@gmail.com
+- chris.gorzelic@gmail.com
+- 101stabninf88@gmail.com
+- telcobill@gmail.com
+- golfprojulie@gmail.com
+- reglet_330@yahoo.com
+- sifu@d0j0s.com
+- nramirez@vahouse.org
+- vswitzer@vahouse.org

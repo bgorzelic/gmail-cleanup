@@ -1,0 +1,30 @@
+# Previously-unsubscribed senders.
+#
+# Used by the `previously-unsubscribed → 💬 Notifications + archive` Gmail
+# filter — if any of these senders try to resurrect (a re-marketing campaign,
+# a new list signup, account creation, etc.), their mail skips inbox.
+#
+# The `verify` subcommand checks the current inbox against this list and
+# flags any sender still arriving as a stuck unsubscribe.
+
+# 2026-05-14 cohort (20 senders, all RFC 8058 one-click POST, all 200 OK)
+- support@botbuilders.com
+- astro@forwardfuture.ai
+- noreply@glassdoor.com
+- kyle@webdevsimplified.com
+- nfl@email.nfl.com
+- noreply@reminder.eventbrite.com
+- noreply@mixcloudmail.com
+- announcements@jimmyjohns.com
+- team@news.wakingup.com
+- support@stockcharts.com
+- hello@jackarcher.com
+- noreply@email.amctheatres.com
+- eyecontact@fuselenses.com
+- support@ottocast.com
+- email@mygovwatch.com
+- hello@send.vidiq.com
+- updates-en@newsletter.printful.com
+- support@butcherbox.com
+- support@localflirt.com
+- jobalerts-noreply@linkedin.com

@@ -1,0 +1,45 @@
+# Vetted noise-sender kill list.
+#
+# These domains/senders are confirmed safe to mass-unsubscribe and archive
+# (newsletters, marketing, job spam, dating spam, retail blasts). Matched
+# as a substring against the sender's email/domain.
+#
+# Override the auto-discovery threshold — anything in this list is unsubscribed
+# even if it sent only 1 message.
+#
+# Add a sender here if you've manually verified it's pure noise. Remove if
+# you want it back. Comments are preserved across edits.
+
+- localflirt.com
+- careerbuilder.com
+- tldrnewsletter.com
+- seekingalpha.com
+- tiktok.com
+- e.dcsg.com
+- jobalerts-noreply@linkedin.com
+- mail.beehiiv.com
+- theladders.com
+- gruntstyle.com
+- email.dailywire.com
+- smartbrief.com
+- joinreframeapp.com
+- pxsmail.com
+- medium.com
+- email.rocketmoney.com
+- heartmind.co
+- hometalk.com
+- mail.horoscope.com
+- big5sportinggoods.com
+- email.bestbuy.com
+- substack.com
+- elephantstock.com
+- lenscrafters.com
+- theresanaiforthat.com
+- flipboard.com
+- e-offers.dominos.com
+- intheworldofai.com
+- us-news.comms.adidas.com
+- m.popeyes.com
+- e.bigblanket.com
+- pm.oann.com
+- hint.app
