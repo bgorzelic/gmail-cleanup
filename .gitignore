@@ -1,0 +1,27 @@
+# OAuth secrets — never commit
+credentials.json
+*.pkl
+.gmail_cli/
+token_*
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.venv/
+venv/
+.python-version
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Local notes / state
+HANDOFF.local.md
+*.local.md
+
+# Claude Code local settings (keep project settings.json, ignore per-user)
+.claude/settings.local.json
