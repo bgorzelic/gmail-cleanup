@@ -92,4 +92,4 @@ This is the working prototype for a productized email-management toolset. Direct
 
 ## License
 
-TBD — currently a personal/internal tool. License decision pending productization direction.
+MIT — see [`LICENSE`](LICENSE).

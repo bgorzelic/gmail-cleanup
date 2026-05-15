@@ -31,12 +31,13 @@
 4. **LinkedIn invitations:** invitations@linkedin.com (13/14d) isn't on the killlist yet — consider adding.
 5. **Productization decision:** see open question below.
 
+## Productization direction (decided 2026-05-15)
+
+**Standalone OSS CLI.** This repo stays focused — no umbrella suite, no folding into `inbox-detox`. Polish, ship to public GitHub when ready, eventually publish to PyPI as `gmail-cleanup`. License: MIT. Repo stays local (no remote yet) until the polish items below are done.
+
 ## Open questions
 
-- **Productization direction.** This repo is the working prototype. The separate `inbox-detox` project is the SaaS. Options:
-  - (a) Keep this as a standalone open-source CLI (e.g., `gmail-cleanup` or rename to a suite name like `email-utilities`), inbox-detox uses the same core
-  - (b) Fold this into inbox-detox as its CLI module
-  - (c) Both — extract a shared core library
+- None blocking. See ROADMAP near-term items.
 
 ## Blockers
 

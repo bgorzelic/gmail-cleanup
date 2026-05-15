@@ -9,34 +9,24 @@ This is the working prototype for a productized email-management toolset. The no
 - **Block-filter fallback.** When an unsubscribe fails twice across separate runs, create a Gmail filter that auto-trashes that sender. The current flow gives up on failed unsubs.
 - **Test suite.** Pytest coverage on `_parse_list_unsubscribe`, `_humans_exclusion`, `_extract_email`. The Gmail API calls stay mocked.
 
-## Productization candidates
+## Productization direction (decided 2026-05-15)
 
-A few directions, not mutually exclusive:
+**Standalone OSS CLI.** MIT licensed. Polish → public GitHub → PyPI as `gmail-cleanup`. Lead-gen for `inbox-detox` SaaS, not folded into it.
 
-### Direction A — Standalone OSS CLI
-Polish, package, publish to PyPI as `gmail-cleanup` or similar.
-- **For:** distribution to technical users who want the audit trail and won't accept a hosted service touching their email
-- **Against:** OAuth setup friction is the main adoption barrier; users have to create their own GCP project
-- **Outcome:** a credibility-building OSS project; lead-gen for the SaaS
+Rejected directions (for the record): umbrella suite (premature, no second tool yet), folding into SaaS (loses OSS/technical audience), core-library + multi-frontend (too much upfront for one shipped frontend).
 
-### Direction B — `email-utilities` suite
-Multiple CLI tools under one umbrella (`gmail-cleanup`, `gmail-export`, `gmail-rules-as-code`, etc.) sharing a common core library.
-- **For:** clean separation of concerns, broader surface area for SEO/discovery
-- **Against:** premature without a second tool actually built
+## Path to v1.0 (public-ready)
 
-### Direction C — Folded into `inbox-detox` SaaS
-This CLI becomes the implementation layer behind the hosted product.
-- **For:** maximum code reuse; the safety model is the product's main moat
-- **Against:** loses the technical-user/OSS audience
+In rough order:
 
-### Direction D — Core library + multiple frontends
-Extract `gmail_core/` library; CLI, agent skill, and SaaS web app all consume it.
-- **For:** clean architecture, matches the original inbox-detox plan
-- **Against:** more upfront work; pays off only if all three frontends ship
+1. **Lists as data, not code.** Move `VETTED_KILL_LIST`, `UNSUB_KEEP_LIST`, `HUMANS_WHITELIST`, `UNSUBBED_SENDERS` to YAML in `lists/`. Users edit without touching source; lists are diff-able and shareable.
+2. **Test suite.** Pytest coverage on safety-critical helpers (`_parse_list_unsubscribe`, `_humans_exclusion`, `_extract_email`, KEEP-list enforcement). Mock the Gmail API.
+3. **Block-filter fallback.** When a sender's unsubscribe fails twice across runs, auto-create a Gmail filter that trashes them. Closes the loop on stuck unsubs.
+4. **Stickiness verification command.** `verify` subcommand: diff current top-senders against the unsubscribe log, flag senders that should be silent but aren't.
+5. **Packaging.** `pyproject.toml`, `pip install -e .` works, console script entry point `gmail-cleanup`. Drop the `.py` from invocation.
+6. **README polish + screenshots/asciinema.** Public-facing first impression.
+7. **CONTRIBUTING.md + CODE_OF_CONDUCT.md.** Standard OSS hygiene.
 
 ## Open questions
 
-1. License? MIT for OSS distribution, or proprietary if it goes SaaS-only?
-2. Naming — keep `gmail-cleanup`, or umbrella as `email-utilities` from day one?
-3. Public GitHub repo, or stay private until v1?
-4. Relationship to `inbox-detox` — sibling, parent, or child?
+None blocking.
