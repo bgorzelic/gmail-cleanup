@@ -72,6 +72,33 @@ CREDS_DIR = Path.home() / '.gmail_cli'
 LEGACY_TOKEN_FILE = CREDS_DIR / 'token.pickle'
 
 
+def _credentials_search_paths() -> List[Path]:
+    """Return the ordered list of paths where we look for credentials.json.
+
+    First match wins. Order:
+      1. $GMAIL_CLEANUP_CREDENTIALS env var (explicit path override)
+      2. ~/.gmail_cli/credentials.json (canonical per-user location)
+      3. ./credentials.json (current working directory — dev/repo convenience)
+      4. <package dir>/credentials.json (legacy — for running from a clone)
+    """
+    paths = []
+    env_path = os.getenv('GMAIL_CLEANUP_CREDENTIALS')
+    if env_path:
+        paths.append(Path(env_path).expanduser())
+    paths.append(CREDS_DIR / 'credentials.json')
+    paths.append(Path.cwd() / 'credentials.json')
+    paths.append(Path(__file__).parent / 'credentials.json')
+    return paths
+
+
+def _find_credentials_file() -> Optional[Path]:
+    """Walk the search paths and return the first credentials.json that exists."""
+    for p in _credentials_search_paths():
+        if p.is_file():
+            return p
+    return None
+
+
 def _token_path(user_email: str) -> Path:
     """Per-account token file. Sanitize email for filesystem."""
     safe = user_email.replace('/', '_').replace('\\', '_')
@@ -102,17 +129,28 @@ class GmailCLI:
                 print("Refreshing access token...")
                 creds.refresh(Request())
             else:
-                # Look for credentials.json file first, then env vars
-                creds_file = Path(__file__).parent / 'credentials.json'
-                if creds_file.exists():
+                # Search for credentials.json in standard locations (in order of preference).
+                creds_file = _find_credentials_file()
+                if creds_file:
                     flow = InstalledAppFlow.from_client_secrets_file(str(creds_file), SCOPES)
                 else:
                     client_id = os.getenv('GOOGLE_OAUTH_CLIENT_ID')
                     client_secret = os.getenv('GOOGLE_OAUTH_CLIENT_SECRET')
 
                     if not client_id or not client_secret:
-                        print("Error: No credentials.json found and no OAuth env vars set")
-                        print("Place credentials.json in project dir or set GOOGLE_OAUTH_CLIENT_ID/SECRET")
+                        print("❌ Could not find OAuth credentials.\n")
+                        print("Checked these locations for credentials.json:")
+                        for p in _credentials_search_paths():
+                            print(f"  • {p}")
+                        print()
+                        print("To get started:")
+                        print(f"  1. Visit https://console.cloud.google.com/apis/credentials")
+                        print(f"     and create an OAuth 2.0 Client ID of type 'Desktop app'.")
+                        print(f"  2. Download the JSON and save it as:")
+                        print(f"     {CREDS_DIR / 'credentials.json'}")
+                        print(f"  3. Re-run this command.")
+                        print()
+                        print("Or set GOOGLE_OAUTH_CLIENT_ID and GOOGLE_OAUTH_CLIENT_SECRET env vars.")
                         sys.exit(1)
 
                     client_config = {

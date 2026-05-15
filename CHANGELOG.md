@@ -4,6 +4,21 @@ All notable changes to this project. Format loosely based on [Keep a Changelog](
 
 ## [Unreleased]
 
+## [0.3.1] — 2026-05-15
+
+The "found in a clean-room install audit" fix. No behavior changes for repo users; major UX improvement for anyone who installs via `pip install`.
+
+### Fixed
+- Credential lookup no longer assumed the tool was running from a git checkout. When pip-installed, `Path(__file__).parent` resolves inside site-packages — "place credentials.json in project dir" was meaningless. Now the tool searches in this order:
+  1. `$GMAIL_CLEANUP_CREDENTIALS` (env var, full path)
+  2. `~/.gmail_cli/credentials.json` (canonical per-user location)
+  3. `./credentials.json` (CWD)
+  4. `<package dir>/credentials.json` (legacy, for running from a clone)
+- When no credentials are found, the error now lists every path that was checked, the GCP console URL to create one, and the exact destination to save it. Actionable instead of cryptic.
+
+### Added
+- 6 new pytest tests covering the credential search-path order and env-var precedence (`tests/test_credentials_search.py`). Total: 52 tests.
+
 ## [0.3.0] — 2026-05-15
 
 The "buttoned-up" pass. Repo turns from a working script into a productizable tool.
