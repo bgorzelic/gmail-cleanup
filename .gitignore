@@ -12,6 +12,9 @@ __pycache__/
 .venv/
 venv/
 .python-version
+# uv.lock is local — gmail-cleanup is distributed as a library/CLI, not an app
+uv.lock
+.pytest_cache/
 
 # Editor / OS
 .DS_Store
