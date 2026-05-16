@@ -4,6 +4,32 @@ All notable changes to this project. Format loosely based on [Keep a Changelog](
 
 ## [Unreleased]
 
+## [0.5.0] — 2026-05-15
+
+The "Swiss army knife" release. Eight new components across four layers — config foundation, quick wins, features, and onboarding.
+
+### Added
+- **Config file** (`~/.gmail_cli/config.yaml`) with deep-merge defaults, env-var override, CWD fallback. New `gmail-cleanup config show / init` subcommands.
+- **Multi-account support.** `gmail-cleanup accounts list / add / remove`. Global `--all-accounts` flag on `autopilot`, `stats`, `verify` iterates configured accounts with partial-failure semantics.
+- **Auto-close-the-loop on unsubscribes.** Successful unsubs auto-append to `lists/unsubbed.yaml` via atomic-write helper.
+- **`gmail-cleanup attachments`** subcommand for storage cleanup. Finds oversized old emails, ranks senders by bytes attributed, supports `--archive` / `--delete` with confirmation.
+- **`gmail-cleanup status`** dashboard combining live Gmail counts, filter inventory, list sizes, and 7-day history.
+- **`gmail-cleanup schedule install / uninstall / status`** for daily launchd-scheduled autopilot (Mac-only in v0.5).
+- **`gmail-cleanup setup`** wizard — 6-step interactive flow that opens browser to GCP, polls Downloads for credentials, runs OAuth smoke test, registers account in config. Reduces first-run friction by ~80%.
+- **Rich progress UI** across all long-running commands. New global `--quiet` (cron-friendly silent) and `--verbose` (debug) flags.
+- **Per-account state file** at `~/.gmail_cli/state_<email>.json` records autopilot/unsubscribe/mark-read events with 30-entry history cap.
+
+### Changed
+- **Package layout.** Converted `gmail_cli.py` (single file) to `gmail_cleanup/` package. Existing console script entry (`gmail-cleanup`) unchanged.
+- **Email resolution precedence:** CLI flag > `USER_GOOGLE_EMAIL` env var > `config.default_email` > error. So `--email` is now optional once config is set.
+- **`gmail-cleanup --help`** lists 16 commands (was 10): adds `config`, `accounts`, `attachments`, `status`, `schedule`, `setup`, plus existing.
+
+### Dependencies
+- Added: `rich>=13.0`
+
+### Tests
+- 84 passing (was 52 at v0.4.0; +32 new tests covering config, accounts, state, lists_io, attachments size parser, multi-account dispatch)
+
 ## [0.4.0] — 2026-05-15
 
 The "Swiss army knife with an autopilot button" release.

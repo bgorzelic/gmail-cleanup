@@ -14,8 +14,16 @@ Everything is auditable. Every action is reversible. The KEEP list overrides any
 
 ## The one-command flow
 
+**New to the tool?** Run the setup wizard first — it handles GCP credentials, OAuth, and account registration in six steps:
+
 ```bash
-gmail-cleanup --email you@gmail.com autopilot
+gmail-cleanup setup
+```
+
+Then run autopilot daily (once config is set, `--email` is optional):
+
+```bash
+gmail-cleanup autopilot
 ```
 
 That runs the full safe-by-default pipeline:
@@ -25,7 +33,7 @@ That runs the full safe-by-default pipeline:
 3. **Mark-read** — clear the archived-but-unread backlog
 4. **Verify** — audit yesterday's unsubscribes; flag anything still arriving
 
-Safe to run repeatedly. Add `--dry-run` to preview, or `--escalate` to auto-create block filters for senders that ignored their unsubscribe.
+Safe to run repeatedly. Add `--dry-run` to preview, or `--escalate` to auto-create block filters for senders that ignored their unsubscribe. Use `--quiet` for cron-friendly silent output, `--verbose` for debug detail.
 
 ## Individual commands
 
@@ -33,20 +41,27 @@ For when you want surgical control:
 
 | Command | What it does |
 |---|---|
-| `autopilot` | Full pipeline: filters → unsubscribe → mark-read → verify. The "Swiss army knife" entry point. |
+| `setup` | Interactive 6-step wizard: GCP credentials → OAuth → account registration. Start here for new installs. |
+| `autopilot` | Full pipeline: filters → unsubscribe → mark-read → verify. The daily driver. |
+| `status` | Dashboard: live Gmail counts, filter inventory, list sizes, 7-day history. |
 | `stats` | Inbox count, unread, storage, oldest email |
 | `top-senders --days N` | Rank senders by volume over the last N days |
 | `subscriptions` | Find senders with List-Unsubscribe headers |
 | `unsubscribe --days N --min-count K` | Auto-discover noise senders, hit their one-click unsub, archive their inbox messages |
 | `mark-read --query Q` | Bulk-mark matching messages as read (default: archived-but-unread backlog) |
 | `verify --since YYYY-MM-DD [--escalate]` | Check whether previously-unsubscribed senders are still arriving. Optionally auto-create a Gmail block filter for stuck senders. |
+| `attachments [--archive\|--delete]` | Find oversized old emails, rank senders by bytes attributed, reclaim storage. |
 | `filters apply` | Create/upgrade Gmail filters with label + archive + mark-read |
 | `filters list` | List existing filters |
+| `config show` | Print resolved config (merged defaults + env vars + `~/.gmail_cli/config.yaml`). |
+| `config init` | Write a starter `~/.gmail_cli/config.yaml`. |
+| `accounts list / add / remove` | Manage configured Gmail accounts. |
+| `schedule install / uninstall / status` | Set up daily launchd-scheduled autopilot (macOS). |
 | `archive` | Bulk archive by sender / category / label / query / age |
 | `delete` | Move to trash by same criteria |
 | `label` | Create and apply labels |
 
-All destructive commands prompt for confirmation unless you pass `--yes`. `autopilot`, `unsubscribe`, and `filters apply` all support `--dry-run`.
+All destructive commands prompt for confirmation unless you pass `--yes`. `autopilot`, `unsubscribe`, and `filters apply` all support `--dry-run`. Global flags: `--quiet` (cron-safe), `--verbose` (debug).
 
 ## Install
 
@@ -62,10 +77,16 @@ pip install -e .          # installs the `gmail-cleanup` console script
 pip install -e ".[dev]"
 ```
 
-OAuth setup:
+OAuth setup (automated — recommended):
+
+```bash
+gmail-cleanup setup
+```
+
+OAuth setup (manual):
 
 1. Create an OAuth 2.0 Desktop App credential in [Google Cloud Console](https://console.cloud.google.com/apis/credentials)
-2. Download the JSON, save it as `credentials.json` in the repo root (see `credentials.example.json` for shape)
+2. Save the downloaded JSON as `~/.gmail_cli/credentials.json` (or set `$GMAIL_CLEANUP_CREDENTIALS` to its path)
 3. On first run, a browser window opens for consent. Token cache lands in `~/.gmail_cli/` (per-account, gitignored)
 
 Required OAuth scopes:
@@ -78,22 +99,51 @@ Required OAuth scopes:
 
 ## Quick start
 
+**First time?** Run the wizard:
+
 ```bash
-# See what's there
-gmail-cleanup --email you@gmail.com stats
-gmail-cleanup --email you@gmail.com top-senders --days 14
+gmail-cleanup setup
+```
 
-# Preview the autopilot
-gmail-cleanup --email you@gmail.com autopilot --dry-run
+It opens the GCP console, waits for you to download `credentials.json`, runs an OAuth smoke test, and registers your account in `~/.gmail_cli/config.yaml`. After that, `--email` is optional everywhere.
 
-# Run it
-gmail-cleanup --email you@gmail.com autopilot
+**Daily use:**
 
-# Two weeks later — re-run autopilot, with escalation for any stuck senders
-gmail-cleanup --email you@gmail.com autopilot --escalate
+```bash
+# Full pipeline — safe to run repeatedly
+gmail-cleanup autopilot
+
+# Preview before committing
+gmail-cleanup autopilot --dry-run
+
+# Dashboard — current state at a glance
+gmail-cleanup status
+
+# Two weeks later — escalate any stuck senders to block filters
+gmail-cleanup autopilot --escalate
 ```
 
 For surgical control, the individual subcommands (above) all work standalone. Autopilot is just a convenience composition.
+
+## Multi-account
+
+Add and manage multiple Gmail accounts via the `accounts` subcommand:
+
+```bash
+gmail-cleanup accounts add work@company.com
+gmail-cleanup accounts add personal@gmail.com
+gmail-cleanup accounts list
+```
+
+Once accounts are registered, run any of these commands across all of them in one shot:
+
+```bash
+gmail-cleanup autopilot --all-accounts
+gmail-cleanup stats --all-accounts
+gmail-cleanup verify --all-accounts
+```
+
+Partial-failure semantics: if one account errors, the others still run. Failures are reported at the end.
 
 ## Safety model
 
@@ -114,7 +164,7 @@ See [`lists/README.md`](lists/README.md) for the conflict-resolution rules betwe
 
 ```bash
 pip install -e ".[dev]"
-pytest                # run the test suite (46 tests, ~0.1s)
+pytest                # run the test suite (84 tests, ~0.1s)
 ruff check .          # lint
 ruff format .         # format
 ```

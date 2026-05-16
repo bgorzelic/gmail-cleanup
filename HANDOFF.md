@@ -2,7 +2,7 @@
 
 **Last updated:** 2026-05-15
 **Account under test:** bgorzelic@gmail.com
-**Tool version:** 0.3.0
+**Tool version:** v0.5.0
 
 ## What this is
 
@@ -15,14 +15,21 @@
 - **Unsubscribed senders to date:** 45 (20 on Day 1 + 25 on Day 2)
 - **Verification debt:** 3 Day-1 unsubscribes failed to stick (localflirt, jobalerts-noreply@linkedin.com, astro@forwardfuture.ai) → still arriving as of 2026-05-15
 
-## Last session (2026-05-15, v0.3.0 — the "buttoned-up" pass)
+## Last session (2026-05-15, v0.5.0 — the "Swiss army knife" release)
 
-- Extracted the four safety lists from `gmail_cli.py` to `lists/*.yaml`. Users now tune the tool by editing YAML, no Python required.
-- Added pytest suite — 46 tests, all green. Covers the list loader, header parsers, and KEEP-list substring semantics. Locked in `_is_protected` behavior for banks, .gov, healthcare, security senders.
-- Added `verify` subcommand with `--since`, `--escalate`, and the `_create_block_filter` helper. Live-verified the 2026-05-14 unsub cohort: 18/20 stuck (90%), 2 confirmed stuck.
-- Packaged with `pyproject.toml` (hatchling) — `pip install -e .` installs the `gmail-cleanup` console script.
-- Added `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `lists/README.md`. Rewrote README to use the new console-script entry point.
-- Tagged v0.3.0.
+v0.5.0 shipped eight new components across four layers:
+
+- **Config foundation.** `~/.gmail_cli/config.yaml` with deep-merge defaults and env-var override. `config show / init` subcommands. Email resolution precedence: CLI flag > `USER_GOOGLE_EMAIL` > config default > error — `--email` is now optional once configured.
+- **Multi-account support.** `accounts list / add / remove`. `--all-accounts` flag on `autopilot`, `stats`, `verify` with partial-failure semantics.
+- **Auto-close-the-loop.** Successful unsubs auto-append to `lists/unsubbed.yaml` via atomic-write helper.
+- **`attachments` subcommand.** Finds oversized old emails, ranks senders by bytes, supports `--archive` / `--delete` with confirmation.
+- **`status` dashboard.** Live Gmail counts, filter inventory, list sizes, 7-day history — all in one view.
+- **`schedule` subcommand.** Daily launchd autopilot on macOS (`install / uninstall / status`).
+- **`setup` wizard.** 6-step interactive flow: GCP browser open → credentials poll → OAuth smoke test → account registration. Reduces first-run friction by ~80%.
+- **Rich progress UI + global flags.** `--quiet` (cron-safe) and `--verbose` (debug) wired through all commands.
+- **Per-account state file.** `~/.gmail_cli/state_<email>.json` with 30-entry history cap.
+- **Package layout.** `gmail_cli.py` → `gmail_cleanup/` package. Console script entry unchanged.
+- **Test suite:** 84 passing (up from 52 at v0.4.0; +32 new tests).
 
 ## Next steps
 
@@ -35,6 +42,8 @@
 ## Productization direction (decided 2026-05-15)
 
 **Standalone OSS CLI.** This repo stays focused — no umbrella suite, no folding into `inbox-detox`. Ship to public GitHub when ready, eventually publish to PyPI as `gmail-cleanup`. License: MIT. **All v1.0 polish items are now done.**
+
+**Path X (hybrid) note.** `gmail-cleanup` stays Python — mature Google API client, no reason to switch. If the suite expands to tool #2 (Calendar, Drive, etc.), `github.com/googleworkspace/cli` (`gws`) is a candidate for the Go-based API layer. Decision deferred until there's a concrete second tool to evaluate it against.
 
 ## Open questions
 
@@ -49,6 +58,7 @@ None. Everything is reversible. The 3 failed unsubscribes are tolerable until th
 ```bash
 cd ~/dev/projects/gmail-cleanup
 source .venv/bin/activate
-./gmail_cli.py --email bgorzelic@gmail.com stats
-./gmail_cli.py --email bgorzelic@gmail.com filters list
+gmail-cleanup stats
+gmail-cleanup status
+gmail-cleanup autopilot --dry-run
 ```
