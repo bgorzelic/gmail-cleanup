@@ -2,7 +2,7 @@
 
 **Last updated:** 2026-05-15
 **Account under test:** bgorzelic@gmail.com
-**Tool version:** v0.5.0
+**Tool version:** v0.5.2
 
 ## What this is
 

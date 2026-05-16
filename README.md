@@ -1,194 +1,236 @@
 # gmail-cleanup
 
-A safety-first CLI for reclaiming a Gmail inbox. One-click unsubscribe (RFC 8058), declarative filter management, and a hard-coded KEEP list that physically cannot unsubscribe you from your bank.
+[![tests](https://github.com/bgorzelic/gmail-cleanup/actions/workflows/test.yml/badge.svg)](https://github.com/bgorzelic/gmail-cleanup/actions/workflows/test.yml)
+[![release](https://img.shields.io/github/v/release/bgorzelic/gmail-cleanup)](https://github.com/bgorzelic/gmail-cleanup/releases)
+[![python](https://img.shields.io/badge/python-3.11%20|%203.12%20|%203.13-blue)](https://www.python.org/)
+[![license](https://img.shields.io/github/license/bgorzelic/gmail-cleanup)](LICENSE)
 
-## Why
+**Reclaim your Gmail inbox — safely.** One-click unsubscribe (RFC 8058), declarative filter management, scheduled autopilot, and a hard-coded KEEP list that **physically cannot unsubscribe you from your bank**.
 
-Most Gmail "cleanup" tools either (a) leave the work to you or (b) blast through your inbox with no idea what's a newsletter and what's a credit-card fraud alert. This CLI splits the world into three buckets and treats each differently:
+```
+$ gmail-cleanup autopilot
 
-- **Real humans** → starred, marked important, spam-shielded (never touched)
-- **Must-keep automation** (banks, healthcare, government, brokerage, security) → KEEP list, physically cannot be unsubscribed by the tool
-- **Noise** (newsletters, marketing, job spam) → one-click unsubscribed via RFC 8058 and archived (reversible — still in All Mail)
+🤖 gmail-cleanup autopilot — full inbox cleanup
+━━━ Phase 1/4: Apply Gmail filters ━━━
+   ✅ 8 upgraded, 4 created (all archive + mark read)
+━━━ Phase 2/4: Unsubscribe noise senders (last 30d, min-count 2) ━━━
+   ✅ 25 unsubscribed via RFC 8058 one-click POST, 61 inbox messages archived
+━━━ Phase 3/4: Mark archived-unread as read ━━━
+   ✅ 4,710 messages marked read
+━━━ Phase 4/4: Verify previously-unsubscribed senders ━━━
+   ⚠️  2 stuck (re-run with --escalate to auto-block)
+   ✅ 18 silent (unsubs stuck)
 
-Everything is auditable. Every action is reversible. The KEEP list overrides any "delete this sender" instruction.
-
-## The one-command flow
-
-**New to the tool?** Run the setup wizard first — it handles GCP credentials, OAuth, and account registration in six steps:
-
-```bash
-gmail-cleanup setup
+🎉 Autopilot complete. Inbox: 144 (was 7,283) · Unread: 150 (was 4,858)
 ```
 
-Then run autopilot daily (once config is set, `--email` is optional):
+---
 
-```bash
-gmail-cleanup autopilot
-```
+## ✨ Why it's different
 
-That runs the full safe-by-default pipeline:
+| | Other tools | gmail-cleanup |
+|---|---|---|
+| **Safety** | Best-effort | **KEEP list refuses to unsub from banks, .gov, healthcare** |
+| **Unsubscribe** | Click the link in the email | **RFC 8058 one-click POST** — the modern standard |
+| **Real humans** | At risk of getting archived | **Whitelist-protected** — starred, important, spam-shielded |
+| **Reversibility** | Often destructive | **Archive over delete** by default — recoverable from All Mail |
+| **Auditability** | Black box | **84-test safety net** + structured logs + state file |
+| **Automation** | Manual, daily | **One-command autopilot**, optional daily scheduler (macOS) |
 
-1. **Apply filters** — declare your categorization rules to Gmail (idempotent)
-2. **Unsubscribe** — find noise senders from the last 30 days, hit their one-click unsub, archive
-3. **Mark-read** — clear the archived-but-unread backlog
-4. **Verify** — audit yesterday's unsubscribes; flag anything still arriving
+---
 
-Safe to run repeatedly. Add `--dry-run` to preview, or `--escalate` to auto-create block filters for senders that ignored their unsubscribe. Use `--quiet` for cron-friendly silent output, `--verbose` for debug detail.
+## 📦 Installation
 
-## Individual commands
-
-For when you want surgical control:
-
-| Command | What it does |
-|---|---|
-| `setup` | Interactive 6-step wizard: GCP credentials → OAuth → account registration. Start here for new installs. |
-| `autopilot` | Full pipeline: filters → unsubscribe → mark-read → verify. The daily driver. |
-| `status` | Dashboard: live Gmail counts, filter inventory, list sizes, 7-day history. |
-| `stats` | Inbox count, unread, storage, oldest email |
-| `top-senders --days N` | Rank senders by volume over the last N days |
-| `subscriptions` | Find senders with List-Unsubscribe headers |
-| `unsubscribe --days N --min-count K` | Auto-discover noise senders, hit their one-click unsub, archive their inbox messages |
-| `mark-read --query Q` | Bulk-mark matching messages as read (default: archived-but-unread backlog) |
-| `verify --since YYYY-MM-DD [--escalate]` | Check whether previously-unsubscribed senders are still arriving. Optionally auto-create a Gmail block filter for stuck senders. |
-| `attachments [--archive\|--delete]` | Find oversized old emails, rank senders by bytes attributed, reclaim storage. |
-| `filters apply` | Create/upgrade Gmail filters with label + archive + mark-read |
-| `filters list` | List existing filters |
-| `config show` | Print resolved config (merged defaults + env vars + `~/.gmail_cli/config.yaml`). |
-| `config init` | Write a starter `~/.gmail_cli/config.yaml`. |
-| `accounts list / add / remove` | Manage configured Gmail accounts. |
-| `schedule install / uninstall / status` | Set up daily launchd-scheduled autopilot (macOS). |
-| `archive` | Bulk archive by sender / category / label / query / age |
-| `delete` | Move to trash by same criteria |
-| `label` | Create and apply labels |
-
-All destructive commands prompt for confirmation unless you pass `--yes`. `autopilot`, `unsubscribe`, and `filters apply` all support `--dry-run`. Global flags: `--quiet` (cron-safe), `--verbose` (debug).
-
-## Install
-
-Requires Python 3.11+ and a GCP project with the Gmail API enabled.
-
-**Recommended (end users) — isolated install via pipx:**
+**End users — isolated install via [pipx](https://pipx.pypa.io/) (recommended):**
 
 ```bash
 pipx install git+https://github.com/bgorzelic/gmail-cleanup.git
 ```
 
-**For dev work (you want to hack on it):**
+**Developers — clone and edit:**
 
 ```bash
 git clone https://github.com/bgorzelic/gmail-cleanup.git
 cd gmail-cleanup
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -e ".[dev]"   # adds pytest + ruff
+pip install -e ".[dev]"
 ```
 
-> **Hitting OAuth errors?** See [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md) — it covers the consent-screen / test-user step that catches everyone the first time. The `gmail-cleanup setup` wizard handles this for you (v0.5.1+).
+**Requirements:** Python 3.11+ and a Google Cloud project with the Gmail API enabled (the setup wizard walks you through both).
 
-OAuth setup (automated — recommended):
+> 💡 **Hitting OAuth errors?** See [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md). The most common gotcha (consent screen / test users for unverified apps) is handled by the setup wizard in v0.5.1+.
+
+---
+
+## 🚀 Quick start
 
 ```bash
+# First time — interactive wizard handles GCP, OAuth, config in 7 steps:
 gmail-cleanup setup
-```
 
-OAuth setup (manual):
-
-1. Create an OAuth 2.0 Desktop App credential in [Google Cloud Console](https://console.cloud.google.com/apis/credentials)
-2. Save the downloaded JSON as `~/.gmail_cli/credentials.json` (or set `$GMAIL_CLEANUP_CREDENTIALS` to its path)
-3. On first run, a browser window opens for consent. Token cache lands in `~/.gmail_cli/` (per-account, gitignored)
-
-Required OAuth scopes:
-
-- `gmail.modify` — archive, label, modify messages
-- `gmail.readonly` — read message headers/metadata
-- `gmail.labels` — manage labels
-- `gmail.send` — send mailto-style unsubscribe emails
-- `gmail.settings.basic` — manage Gmail filters
-
-## Quick start
-
-**First time?** Run the wizard:
-
-```bash
-gmail-cleanup setup
-```
-
-It opens the GCP console, waits for you to download `credentials.json`, runs an OAuth smoke test, and registers your account in `~/.gmail_cli/config.yaml`. After that, `--email` is optional everywhere.
-
-**Daily use:**
-
-```bash
-# Full pipeline — safe to run repeatedly
+# Daily use — one command runs the full cleanup pipeline:
 gmail-cleanup autopilot
 
-# Preview before committing
-gmail-cleanup autopilot --dry-run
-
-# Dashboard — current state at a glance
+# Glance at inbox health:
 gmail-cleanup status
 
-# Two weeks later — escalate any stuck senders to block filters
+# Two weeks later — escalate any unsubs that didn't stick:
 gmail-cleanup autopilot --escalate
 ```
 
-For surgical control, the individual subcommands (above) all work standalone. Autopilot is just a convenience composition.
+`--dry-run` previews any destructive command. `--quiet` for cron-friendly silent runs. `--verbose` for debug.
 
-## Multi-account
+---
 
-Add and manage multiple Gmail accounts via the `accounts` subcommand:
+## 🧠 How it works
 
-```bash
-gmail-cleanup accounts add work@company.com
-gmail-cleanup accounts add personal@gmail.com
-gmail-cleanup accounts list
+Every sender falls into one of three buckets:
+
+```
+                ┌──────────────────────────────────┐
+  inbox mail ──▶│ Real human (humans.yaml)         │──▶  ⭐ star + important + spam-shield
+                ├──────────────────────────────────┤
+                │ Must-keep automation (keep.yaml) │──▶  🔒 NEVER unsubscribe (safety rail)
+                │  banks, .gov, health, brokerage  │
+                ├──────────────────────────────────┤
+                │ Noise (kill.yaml + auto-discover)│──▶  🗑  one-click unsub + archive
+                └──────────────────────────────────┘
 ```
 
-Once accounts are registered, run any of these commands across all of them in one shot:
+Tune the buckets by editing the YAML files in [`lists/`](lists/) — no Python required.
 
-```bash
-gmail-cleanup autopilot --all-accounts
-gmail-cleanup stats --all-accounts
-gmail-cleanup verify --all-accounts
+---
+
+## 🛠 The autopilot pipeline
+
+```
+gmail-cleanup autopilot
+   │
+   ├── Phase 1  filters apply        Declare categorization rules to Gmail (idempotent)
+   ├── Phase 2  unsubscribe          Find recent noise, hit RFC 8058 one-click, archive
+   ├── Phase 3  mark-read            Clear the archived-but-unread backlog
+   └── Phase 4  verify               Audit previous unsubs; --escalate to block stuck ones
 ```
 
-Partial-failure semantics: if one account errors, the others still run. Failures are reported at the end.
+Each phase also works standalone. Autopilot is the convenience composition.
 
-## Safety model
+---
+
+## 📖 Commands
+
+| Command | What it does |
+|---|---|
+| **`setup`** | Interactive 7-step wizard: GCP credentials → OAuth → account registration. **Start here.** |
+| **`autopilot`** | Full pipeline. The daily driver. Add `--all-accounts` to run across every configured Gmail. |
+| `status` | Dashboard: live counts, filter inventory, list sizes, 7-day history |
+| `stats` | Inbox count, unread, storage, oldest email |
+| `top-senders --days N` | Rank senders by volume |
+| `subscriptions` | Find senders with `List-Unsubscribe` headers |
+| `unsubscribe --days N --min-count K` | One-click unsubscribe noise senders + archive their mail |
+| `mark-read --query Q` | Bulk-mark messages as read (default: archived-but-unread backlog) |
+| `verify --since YYYY-MM-DD [--escalate]` | Check whether prior unsubs are still arriving; auto-block stuck senders |
+| `attachments [--archive\|--delete]` | Find oversized old emails, rank by bytes |
+| `filters apply / list` | Create/upgrade/list Gmail filters |
+| `config show / init` | Manage `~/.gmail_cli/config.yaml` |
+| `accounts list / add / remove` | Manage multi-account roster |
+| `schedule install / uninstall / status` | Daily launchd-scheduled autopilot (macOS) |
+| `archive` / `delete` / `label` | Bulk operations by sender / category / label / query / age |
+
+All destructive commands prompt for confirmation unless you pass `--yes`. Global flags: `--quiet`, `--verbose`, `--all-accounts`.
+
+---
+
+## 🔐 Safety model
 
 Four YAML files in [`lists/`](lists/) govern behavior. Edit them to tune the tool — no Python required.
 
 | File | Used by | Match | Behavior |
 |---|---|---|---|
 | [`lists/keep.yaml`](lists/keep.yaml) | `unsubscribe` | Substring | If sender matches, the unsubscribe is **refused**. Banks, healthcare, .gov, security senders. |
-| [`lists/kill.yaml`](lists/kill.yaml) | `unsubscribe`, `filters apply` | Substring | Forces unsubscribe + archive regardless of message-count threshold. |
-| [`lists/humans.yaml`](lists/humans.yaml) | `filters apply` | Exact email | Star + mark important + spam-protect. Excluded from `has:list` catch-all. |
-| [`lists/unsubbed.yaml`](lists/unsubbed.yaml) | `filters apply`, `verify` | Exact email | Anti-resurrection — if a previously-unsubscribed sender tries to come back, route to archive. `verify` audits this list. |
+| [`lists/kill.yaml`](lists/kill.yaml) | `unsubscribe`, `filters apply` | Substring | Forces unsubscribe + archive regardless of message-count threshold |
+| [`lists/humans.yaml`](lists/humans.yaml) | `filters apply` | Exact email | Star + mark important + spam-protect. Excluded from `has:list` catch-all |
+| [`lists/unsubbed.yaml`](lists/unsubbed.yaml) | `filters apply`, `verify` | Exact email | Anti-resurrection — auto-archive if a previously-unsubscribed sender tries to come back |
 
 The unsubscribe flow prefers RFC 8058 one-click POST (the standard Gmail/Apple now require for bulk senders). Falls back to GET, then mailto. Senders without any `List-Unsubscribe` header are skipped, not silently archived — that's a guard against accidentally archiving a real person.
 
 See [`lists/README.md`](lists/README.md) for the conflict-resolution rules between the four files.
 
-## Development
+---
+
+## 👥 Multi-account
+
+```bash
+gmail-cleanup accounts add work@company.com   --label work
+gmail-cleanup accounts add personal@gmail.com --label personal
+gmail-cleanup accounts list
+
+# Run the same command across every configured account:
+gmail-cleanup autopilot --all-accounts
+gmail-cleanup stats     --all-accounts
+gmail-cleanup verify    --all-accounts
+```
+
+**Partial-failure semantics:** if one account errors, the others still run. Failures are reported at the end. Exit code = number of failed accounts (0 = all clean).
+
+---
+
+## 🤖 Daily autopilot (macOS)
+
+```bash
+# Install a launchd job that runs autopilot every day at 08:00 local:
+gmail-cleanup schedule install --time 08:00 --escalate
+
+# Check it's wired up:
+gmail-cleanup schedule status
+
+# Remove it:
+gmail-cleanup schedule uninstall
+```
+
+Linux (systemd) and Windows (Task Scheduler) integrations are on the [roadmap](ROADMAP.md).
+
+---
+
+## 🛠 Development
 
 ```bash
 pip install -e ".[dev]"
-pytest                # run the test suite (84 tests, ~0.1s)
+pytest                # 84 tests, ~0.2s
 ruff check .          # lint
 ruff format .         # format
 ```
 
-## Project state
+CI runs pytest on Python 3.11/3.12/3.13 for every push and PR.
 
-See [`CHANGELOG.md`](CHANGELOG.md) for version history and [`HANDOFF.md`](HANDOFF.md) for the current open work. Direction and the path to v1.0 live in [`ROADMAP.md`](ROADMAP.md).
+---
 
-## Troubleshooting
+## 📚 Documentation
 
-Common first-run issues (OAuth consent, missing credentials, token expiry) are covered in [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md).
+- [**`ARCHITECTURE.md`**](ARCHITECTURE.md) — 5-minute tour of the codebase
+- [**`TROUBLESHOOTING.md`**](TROUBLESHOOTING.md) — common first-run issues
+- [**`CHANGELOG.md`**](CHANGELOG.md) — version history
+- [**`HANDOFF.md`**](HANDOFF.md) — current session state
+- [**`ROADMAP.md`**](ROADMAP.md) — what's planned
+- [**`CONTRIBUTING.md`**](CONTRIBUTING.md) — how to contribute
+- [`lists/README.md`](lists/README.md) — list conflict-resolution rules
+- [`docs/superpowers/specs/`](docs/superpowers/specs/) — design specs for major features
+- [`docs/superpowers/plans/`](docs/superpowers/plans/) — implementation plans
 
-## Contributing
+---
 
-See [`CONTRIBUTING.md`](CONTRIBUTING.md). Bug reports and PRs welcome.
+## 🤝 Contributing
 
-## License
+Issues, PRs, and discussion all welcome. Start with [`CONTRIBUTING.md`](CONTRIBUTING.md) — it covers the safety invariants you must not break.
+
+The cardinal rule: **the tool's job is to never unsubscribe you from your bank.** Anything that loosens the KEEP list semantics for convenience will be rejected.
+
+---
+
+## 📄 License
 
 MIT — see [`LICENSE`](LICENSE).
+
+---
+
+<sub>Built by [Brian Gorzelic](https://github.com/bgorzelic). Safety-tested on a 7,283-email backlog before any of you used it.</sub>

@@ -4,6 +4,15 @@ All notable changes to this project. Format loosely based on [Keep a Changelog](
 
 ## [Unreleased]
 
+## [0.5.2] — 2026-05-16
+
+The "professional polish" release. No behavior changes — README rewrite, stale-reference fixes, GitHub About updated.
+
+### Changed
+- **README rewrite**: hero badges (CI, release, Python, license), sample autopilot output, comparison table vs. other tools, three-bucket diagram, pipeline diagram, cleaner section structure with emoji anchors. End-user oriented; contributor docs cross-linked.
+- **Stale references fixed**: setup wizard described as "6-step" in three places (README × 2, ARCHITECTURE.md). Now accurately "7-step" per v0.5.1.
+- **HANDOFF.md**: version line updated to v0.5.2.
+
 ## [0.5.1] — 2026-05-16
 
 The "partner-handoff polish" release. No behavior changes; one OAuth-flow gap closed and onboarding documentation rounded out.

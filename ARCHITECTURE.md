@@ -14,7 +14,7 @@ gmail-cleanup/
 │   ├── progress.py             # rich.progress wrapper + --quiet/--verbose mode
 │   ├── state.py                # Per-account state file (~/.gmail_cli/state_<email>.json)
 │   ├── scheduler.py            # macOS launchd plist + wrapper script generation
-│   └── setup_wizard.py         # Interactive 6-step OAuth onboarding
+│   └── setup_wizard.py         # Interactive 7-step OAuth onboarding
 ├── lists/                      # Data files (NOT code) — edit these to tune behavior
 │   ├── keep.yaml               # Substring KEEP list — banks, .gov, security
 │   ├── kill.yaml               # Substring kill list — pure noise senders
