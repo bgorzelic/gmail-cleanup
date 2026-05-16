@@ -335,6 +335,60 @@ def cmd_stats(args):
     print("=" * 60)
 
 
+def cmd_status(args):
+    """Show inbox health dashboard."""
+    from datetime import datetime, timezone, timedelta
+    from rich.console import Console
+    from gmail_cleanup.state import read_state
+
+    gmail = GmailCLI(args.email)
+    console = Console()
+
+    # Live counts
+    inbox_n = len(gmail.search_messages('in:inbox', max_results=10000))
+    unread_n = len(gmail.search_messages('is:unread', max_results=10000))
+
+    # Lists
+    list_counts = {
+        'kill': len(VETTED_KILL_LIST),
+        'keep': len(UNSUB_KEEP_LIST),
+        'humans': len(HUMANS_WHITELIST),
+        'unsubbed': len(UNSUBBED_SENDERS),
+    }
+
+    # Filters
+    try:
+        filters_n = len(_list_filters(gmail))
+    except Exception:
+        filters_n = -1
+
+    # State
+    state = read_state(args.email)
+    history = state.get('history', [])
+    last_ap = state.get('last_autopilot_at') or '—'
+
+    # 7-day rollup
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
+    recent = [e for e in history if e.get('at', '') >= cutoff]
+    sum_unread = sum(e.get('unread_delta', 0) for e in recent)
+    sum_routed = sum(e.get('routed', 0) for e in recent)
+    sum_unsubs = sum(e.get('new_unsubs', 0) for e in recent)
+
+    console.print()
+    console.print(f"[bold]gmail-cleanup status[/bold] — {args.email}\n")
+    console.print(f"📥 Inbox: [cyan]{inbox_n}[/cyan]   📬 Unread: [cyan]{unread_n}[/cyan]")
+    console.print(f"🛡  Filters active: [cyan]{filters_n}[/cyan]")
+    console.print(f"📋 Lists: [cyan]{list_counts['kill']}[/cyan] kill · "
+                  f"[cyan]{list_counts['keep']}[/cyan] keep · "
+                  f"[cyan]{list_counts['humans']}[/cyan] humans · "
+                  f"[cyan]{list_counts['unsubbed']}[/cyan] unsubbed")
+    console.print(f"🤖 Last autopilot: {last_ap}")
+    console.print(f"📈 Last 7d: {sum_unread:+d} unread · "
+                  f"{sum_routed:+d} routed · "
+                  f"{sum_unsubs:+d} new unsubs")
+    console.print()
+
+
 def cmd_top_senders(args):
     """Find top email senders"""
     gmail = GmailCLI(args.email)
@@ -1391,6 +1445,13 @@ Examples:
     # Stats command
     parser_stats = subparsers.add_parser('stats', help='Show inbox statistics')
     parser_stats.set_defaults(func=cmd_stats)
+
+    # Status command
+    parser_status = subparsers.add_parser(
+        'status',
+        help='Show inbox health dashboard (live counts + history)',
+    )
+    parser_status.set_defaults(func=cmd_status)
 
     # Top senders command
     parser_top = subparsers.add_parser('top-senders', help='Find top email senders')
