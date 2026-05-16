@@ -2,6 +2,16 @@
 
 Thanks for taking the time to look at this. This is a small, focused tool — contributions that keep it small and focused are very welcome.
 
+## First-time onboarding (read this if you're new to the repo)
+
+1. **Skim [`README.md`](README.md)** — what the tool does + the one-command flow.
+2. **Read [`ARCHITECTURE.md`](ARCHITECTURE.md)** — 5-minute tour of the codebase. Where everything lives, how the layers compose, what NOT to break.
+3. **Set up locally** (see "Setup" below) and run `pytest`. If you see `84 passed`, you're good.
+4. **Look at [`HANDOFF.md`](HANDOFF.md)** for current open work.
+5. **Pick a [Good First Issue](https://github.com/bgorzelic/gmail-cleanup/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22)** — or open a discussion before larger changes.
+
+**Cardinal rule:** Read the four safety invariants in `ARCHITECTURE.md` before touching anything in `cmd_unsubscribe`, the `lists/*.yaml` files, or `test_safety.py`. The tool's job is to *never* unsubscribe from a bank.
+
 ## Project values
 
 1. **Safety over speed.** The KEEP list, the human whitelist, and the "no List-Unsubscribe header = skip" rule exist because losing a bank alert or archiving a real person's email is unforgivable. PRs that loosen safety for convenience will probably be rejected.
