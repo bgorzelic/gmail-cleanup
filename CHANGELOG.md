@@ -4,6 +4,21 @@ All notable changes to this project. Format loosely based on [Keep a Changelog](
 
 ## [Unreleased]
 
+## [0.5.1] — 2026-05-16
+
+The "partner-handoff polish" release. No behavior changes; one OAuth-flow gap closed and onboarding documentation rounded out.
+
+### Added
+- **OAuth consent-screen step in the setup wizard** (now `[Step 3/7]`). Previously the wizard jumped from "enable Gmail API" straight to "create OAuth client" — but Google requires the consent screen to be configured first, and unverified apps need the user added as a Test User. Without this step, new users hit "Access blocked: This app's request is invalid" on first run.
+- **`TROUBLESHOOTING.md`** covering the 6 issues new users hit most often: consent-screen errors, missing credentials, scope limits, scheduler on Linux/Windows, 7-day token expiry for unverified apps, PATH issues with pipx.
+- **`ARCHITECTURE.md`** — 5-minute tour of the codebase (layout, state file locations, layer composition, sender state machine, safety invariants, test guide).
+- **CI workflow** (`.github/workflows/test.yml`): pytest matrix across Python 3.11/3.12/3.13 on every push and PR.
+- **Issue templates** for bug reports and feature requests.
+
+### Changed
+- **README install section** now leads with `pipx install git+https://...` (the right choice for end users) instead of `git clone + pip install -e .` (only relevant for contributors).
+- **CONTRIBUTING.md** gains a "First-time onboarding" section pointing new collaborators at ARCHITECTURE.md and the safety invariants.
+
 ## [0.5.0] — 2026-05-15
 
 The "Swiss army knife" release. Eight new components across four layers — config foundation, quick wins, features, and onboarding.

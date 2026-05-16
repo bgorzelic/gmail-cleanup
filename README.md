@@ -67,15 +67,23 @@ All destructive commands prompt for confirmation unless you pass `--yes`. `autop
 
 Requires Python 3.11+ and a GCP project with the Gmail API enabled.
 
+**Recommended (end users) — isolated install via pipx:**
+
 ```bash
-git clone <this-repo>
+pipx install git+https://github.com/bgorzelic/gmail-cleanup.git
+```
+
+**For dev work (you want to hack on it):**
+
+```bash
+git clone https://github.com/bgorzelic/gmail-cleanup.git
 cd gmail-cleanup
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -e .          # installs the `gmail-cleanup` console script
-# or for dev work (with pytest + ruff):
-pip install -e ".[dev]"
+pip install -e ".[dev]"   # adds pytest + ruff
 ```
+
+> **Hitting OAuth errors?** See [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md) — it covers the consent-screen / test-user step that catches everyone the first time. The `gmail-cleanup setup` wizard handles this for you (v0.5.1+).
 
 OAuth setup (automated — recommended):
 
@@ -172,6 +180,10 @@ ruff format .         # format
 ## Project state
 
 See [`CHANGELOG.md`](CHANGELOG.md) for version history and [`HANDOFF.md`](HANDOFF.md) for the current open work. Direction and the path to v1.0 live in [`ROADMAP.md`](ROADMAP.md).
+
+## Troubleshooting
+
+Common first-run issues (OAuth consent, missing credentials, token expiry) are covered in [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md).
 
 ## Contributing
 

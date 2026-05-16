@@ -17,6 +17,7 @@ DOWNLOADS = Path.home() / 'Downloads'
 
 GCP_PROJECT_CREATE = "https://console.cloud.google.com/projectcreate"
 GMAIL_API_LIBRARY = "https://console.cloud.google.com/apis/library/gmail.googleapis.com"
+OAUTH_CONSENT_SCREEN = "https://console.cloud.google.com/apis/credentials/consent"
 OAUTH_CREDENTIALS = "https://console.cloud.google.com/apis/credentials/oauthclient"
 
 
@@ -44,7 +45,7 @@ def _find_recent_download(window_secs: int = 300) -> Optional[Path]:
 def run_wizard() -> None:
     print("🧙 gmail-cleanup setup wizard")
     print("=" * 60)
-    print("Walks through 6 short steps. Total: ~3 minutes.\n")
+    print("Walks through 7 short steps. Total: ~4 minutes.\n")
 
     if CREDS_DEST.exists():
         resp = (
@@ -58,18 +59,31 @@ def run_wizard() -> None:
             print("Aborted.")
             return
 
-    print("\n[Step 1/6] Create a Google Cloud project")
+    print("\n[Step 1/7] Create a Google Cloud project")
     print("  Name it anything (e.g. 'gmail-cleanup'). Click Create.")
     _open_browser(GCP_PROJECT_CREATE)
     _press_enter()
 
-    print("\n[Step 2/6] Enable the Gmail API")
+    print("\n[Step 2/7] Enable the Gmail API")
     print("  Click Enable.")
     _open_browser(GMAIL_API_LIBRARY)
     _press_enter()
 
+    print("\n[Step 3/7] Configure the OAuth consent screen")
+    print("  Google requires this before you can use OAuth, even for a")
+    print("  personal-use app. Settings:")
+    print("    • User Type: External")
+    print("    • App name: anything (e.g. 'gmail-cleanup')")
+    print("    • User support email + Developer contact: your email")
+    print("    • Skip the optional sections (scopes, branding)")
+    print("    • Add YOUR Gmail address as a Test User (this is critical")
+    print("      for unverified apps — without it OAuth will fail with")
+    print("      'Access blocked')")
+    _open_browser(OAUTH_CONSENT_SCREEN)
+    _press_enter()
+
     print(
-        "\n[Step 3/6] Create an OAuth Desktop Application client"
+        "\n[Step 4/7] Create an OAuth Desktop Application client"
     )
     print(
         "  Application type: 'Desktop app'. Name it anything. Click Create."
@@ -78,7 +92,7 @@ def run_wizard() -> None:
     _open_browser(OAUTH_CREDENTIALS)
     _press_enter()
 
-    print("\n[Step 4/6] Locate the downloaded credentials file")
+    print("\n[Step 5/7] Locate the downloaded credentials file")
     downloaded = _find_recent_download()
     if downloaded:
         resp = (
@@ -106,7 +120,7 @@ def run_wizard() -> None:
         shutil.copy(str(path), str(CREDS_DEST))
         print(f"  ✅ Copied to {CREDS_DEST}")
 
-    print("\n[Step 5/6] OAuth smoke test")
+    print("\n[Step 6/7] OAuth smoke test")
     email = input(
         "  Enter the Gmail address you'll authorize as: "
     ).strip()
@@ -122,7 +136,7 @@ def run_wizard() -> None:
         print(f"❌ Smoke test failed: {e}")
         return
 
-    print("\n[Step 6/6] Register account in config")
+    print("\n[Step 7/7] Register account in config")
     resp = (
         input(
             f"  Register {email} as default and in accounts list? [Y/n] "
