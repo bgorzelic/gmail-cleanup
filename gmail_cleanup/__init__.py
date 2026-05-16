@@ -490,6 +490,22 @@ def _extract_email(from_header: str) -> str:
     return from_header.strip().lower()
 
 
+def _parse_size(s: str) -> int:
+    """Parse a size string like '10mb', '500kb', '1gb' into bytes."""
+    s = s.strip().lower()
+    suffix_map = {'kb': 1024, 'mb': 1024**2, 'gb': 1024**3}
+    for suf, mult in suffix_map.items():
+        if s.endswith(suf):
+            try:
+                return int(float(s[:-len(suf)]) * mult)
+            except ValueError as e:
+                raise ValueError(f"Could not parse size {s!r}") from e
+    try:
+        return int(s)
+    except ValueError as e:
+        raise ValueError(f"Could not parse size {s!r}") from e
+
+
 def _parse_list_unsubscribe(header_value: str) -> List[Tuple[str, str]]:
     """Parse a List-Unsubscribe header into [(method, target), ...].
 
@@ -1214,6 +1230,62 @@ def cmd_mark_read(args):
     append_event(args.email, source='mark-read', deltas={'unread_delta': -len(messages)})
 
 
+def cmd_attachments(args):
+    """Find oversized old emails. Preview by default; --archive or --delete to act."""
+    gmail = GmailCLI(args.email)
+    _ = _parse_size(args.over)  # validates the input
+    over_str = args.over.upper().rstrip('B')  # 10MB -> 10M
+    query = f"has:attachment larger:{over_str}"
+    if args.older_than:
+        query += f" older_than:{args.older_than}d"
+
+    print(f"🔍 Searching: {query}\n")
+    messages = gmail.search_messages(query, max_results=args.limit)
+    if not messages:
+        print("✅ No matching emails.")
+        return
+
+    by_sender = defaultdict(lambda: {'count': 0, 'bytes': 0})
+    for msg in messages:
+        full = gmail.get_message(msg['id'], format='metadata')
+        if not full:
+            continue
+        sender = _extract_email(gmail.get_header(full, 'From'))
+        size = int(full.get('sizeEstimate', 0))
+        by_sender[sender]['count'] += 1
+        by_sender[sender]['bytes'] += size
+
+    ranked = sorted(by_sender.items(), key=lambda kv: kv[1]['bytes'], reverse=True)
+    total_bytes = sum(v['bytes'] for v in by_sender.values())
+
+    print(f"Found {len(messages)} emails, ~{total_bytes / 1024**2:.1f} MB total\n")
+    print(f"{'Rank':<5} {'Bytes':<14} {'Sender':<45} {'Messages':<10}")
+    print("=" * 80)
+    for i, (sender, v) in enumerate(ranked[:25], 1):
+        mb = v['bytes'] / 1024**2
+        print(f"{i:<5} {mb:>8.1f} MB     {sender[:43]:<45} {v['count']:<10}")
+    print("=" * 80)
+
+    if args.dry_run or not (args.archive or args.delete):
+        print("\n🔍 Preview only. Add --archive or --delete to act.")
+        return
+
+    if not args.yes:
+        action = 'TRASH' if args.delete else 'archive'
+        resp = input(f"\n⚠️  {action} {len(messages)} emails? (yes/no): ")
+        if resp.lower() not in ['yes', 'y']:
+            print("Cancelled.")
+            return
+
+    msg_ids = [m['id'] for m in messages]
+    if args.delete:
+        gmail.batch_modify_messages(msg_ids, add_labels=['TRASH'], remove_labels=['INBOX', 'UNREAD'])
+        print(f"\n🗑  Trashed {len(messages)} emails.")
+    else:
+        gmail.batch_modify_messages(msg_ids, remove_labels=['INBOX'])
+        print(f"\n📦 Archived {len(messages)} emails.")
+
+
 def cmd_archive(args):
     """Archive emails matching criteria"""
     gmail = GmailCLI(args.email)
@@ -1591,6 +1663,21 @@ Examples:
     parser_label.add_argument('--limit', type=int, default=10000, help='Max emails to process')
     parser_label.add_argument('--yes', action='store_true', help='Skip confirmation')
     parser_label.set_defaults(func=cmd_label)
+
+    # Attachments cleanup
+    parser_atts = subparsers.add_parser(
+        'attachments',
+        help='Find oversized old emails for storage cleanup',
+    )
+    parser_atts.add_argument('--over', default='10mb', help='Minimum size (default: 10mb)')
+    parser_atts.add_argument('--older-than', type=int, default=180,
+                             help='Only emails older than N days (default: 180)')
+    parser_atts.add_argument('--archive', action='store_true', help='Archive matching emails')
+    parser_atts.add_argument('--delete', action='store_true', help='Move matching to Trash')
+    parser_atts.add_argument('--dry-run', action='store_true', help='Preview only')
+    parser_atts.add_argument('--yes', action='store_true', help='Skip confirmation prompt')
+    parser_atts.add_argument('--limit', type=int, default=1000, help='Max messages to scan')
+    parser_atts.set_defaults(func=cmd_attachments)
 
     args = parser.parse_args()
 
