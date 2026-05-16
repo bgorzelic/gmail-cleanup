@@ -56,6 +56,7 @@ lists_dir: ~/.gmail_cli/lists      # optional; defaults to package lists/
 defaults:
   unsubscribe: { days: 30, min_count: 2 }
   verify: { days: 14 }
+  account_timeout: 300              # seconds per account in --all-accounts runs
 ```
 
 **Precedence:** CLI flag > config file value > hard-coded default.
@@ -94,7 +95,7 @@ defaults:
 
 **Signature:**
 ```bash
-gmail-cleanup attachments [--over SIZE] [--older-than DAYS] [--archive|--delete] [--dry-run] [--limit N]
+gmail-cleanup attachments [--over SIZE] [--older-than DAYS] [--archive|--delete] [--dry-run] [--yes] [--limit N]
 ```
 
 **Defaults:** `--over 10mb --older-than 180d --dry-run`. Safe-by-default — no destructive action without explicit flag.
@@ -125,8 +126,7 @@ With `--archive` or `--delete`: applies the action via existing infrastructure. 
 **Plist details:**
 - Path: `~/Library/LaunchAgents/com.github.bgorzelic.gmail-cleanup.plist`
 - Default time: **08:00 local** (per Open Design Question 2)
-- Command: `gmail-cleanup --email <account> autopilot [--escalate] --quiet`
-- StdOut/StdErr: `~/.gmail_cli/logs/autopilot-YYYY-MM-DD.log` (rotated by date stamping)
+- Command: the plist invokes a small wrapper script (`~/.gmail_cli/bin/run-autopilot.sh`, installed alongside the plist) which (a) computes today's date, (b) runs `gmail-cleanup --email <account> autopilot [--escalate] --quiet >> ~/.gmail_cli/logs/autopilot-YYYY-MM-DD.log 2>&1`. **The wrapper is the rotation mechanism** — launchd's `StandardOutPath`/`StandardErrorPath` are intentionally NOT used, because they're static paths that can't interpolate a date. Per-day log files fall out naturally.
 
 ### 4.6 OAuth setup wizard
 
@@ -136,14 +136,17 @@ With `--archive` or `--delete`: applies the action via existing infrastructure. 
 
 **Flow (`gmail-cleanup setup`):**
 
-1. Detect existing `~/.gmail_cli/credentials.json` → prompt to overwrite (default: no)
-2. Print intro: "I'll walk you through 4 short steps. Total: ~3 minutes."
-3. **Step 1:** Open browser to `console.cloud.google.com/projectcreate`. On-screen text: "Name the project anything, e.g. `gmail-cleanup`. Click Create. Wait ~30 seconds for it to provision. Press Enter when done."
-4. **Step 2:** Open browser to the Gmail API library page. On-screen: "Click Enable. Press Enter when done."
-5. **Step 3:** Open browser to OAuth client creation. On-screen: "Choose Application type: Desktop app. Name it anything. Click Create. A modal will appear — click 'Download JSON'. Press Enter when downloaded."
-6. **Step 4:** Poll `~/Downloads` for new `client_secret_*.json` files (modified in the last 5 minutes). When found, prompt for confirmation, move to `~/.gmail_cli/credentials.json`. Fallback if no match: ask user to enter the path manually.
-7. **Step 5:** Trigger an OAuth consent flow as smoke test. On success, print the authenticated email.
-8. **Step 6:** Offer to register the authenticated email as `default_email` in `config.yaml` (creating the config file if absent).
+*Preflight (unnumbered):*
+- Detect existing `~/.gmail_cli/credentials.json` → prompt to overwrite (default: no)
+- Print intro: "I'll walk you through 6 short steps. Total: ~3 minutes."
+
+*Steps:*
+1. **Step 1 — Create GCP project:** Open browser to `console.cloud.google.com/projectcreate`. On-screen text: "Name the project anything, e.g. `gmail-cleanup`. Click Create. Wait ~30 seconds for it to provision. Press Enter when done."
+2. **Step 2 — Enable Gmail API:** Open browser to the Gmail API library page. On-screen: "Click Enable. Press Enter when done."
+3. **Step 3 — Create OAuth client:** Open browser to OAuth client creation. On-screen: "Choose Application type: Desktop app. Name it anything. Click Create. A modal will appear — click 'Download JSON'. Press Enter when downloaded."
+4. **Step 4 — Locate downloaded credentials:** Poll `~/Downloads` for new `client_secret_*.json` files (modified in the last 5 minutes). When found, prompt for confirmation, move to `~/.gmail_cli/credentials.json`. Fallback if no match: ask user to enter the path manually.
+5. **Step 5 — Smoke test:** Trigger an OAuth consent flow. On success, print the authenticated email.
+6. **Step 6 — Register account:** Offer to register the authenticated email as `default_email` in `config.yaml` (creating the config file if absent).
 
 **Re-runnability:** Safe to run multiple times. Each step is idempotent (overwrites or skips based on existing state).
 
@@ -174,7 +177,12 @@ gmail-cleanup status — you@gmail.com
 }
 ```
 
-**Writers:** autopilot, unsubscribe, mark-read each append an event to history.
+**Writers:**
+- `autopilot` — writes the summary event with all deltas (unread_delta, routed, new_unsubs)
+- `unsubscribe` — writes `new_unsubs` event if invoked standalone
+- `mark-read` — writes `unread_delta` event if invoked standalone
+- `filters apply` — writes `routed` event reflecting the count of inbox messages a fresh filter would have caught (estimated retrospectively; 0 when applied to an already-clean inbox)
+
 **Reader:** status command.
 **Retention:** keep last 30 entries, prune older.
 
