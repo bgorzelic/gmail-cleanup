@@ -945,6 +945,40 @@ def cmd_config(args):
     print(yaml.safe_dump(cfg, sort_keys=False, default_flow_style=False))
 
 
+def cmd_accounts(args):
+    """Manage configured accounts (list / add / remove)."""
+    from gmail_cleanup.accounts import list_accounts, add_account, remove_account
+    from gmail_cleanup.config import find_config_file
+
+    if args.subaction == 'list':
+        accounts = list_accounts()
+        if not accounts:
+            path = find_config_file()
+            print(f"No accounts configured. Add one with:")
+            print(f"   gmail-cleanup accounts add EMAIL [--label LABEL]")
+            if path:
+                print(f"Config: {path}")
+            return
+        print(f"📋 {len(accounts)} account(s):\n")
+        for a in accounts:
+            label = a.get('label', '(no label)')
+            print(f"   • {a['email']:<40} [{label}]")
+        return
+
+    if args.subaction == 'add':
+        record = add_account(args.email_arg, label=args.label)
+        suffix = f" [{record.get('label')}]" if record.get('label') else ""
+        print(f"✅ Added {record['email']}{suffix}")
+        return
+
+    if args.subaction == 'remove':
+        if remove_account(args.email_arg):
+            print(f"✅ Removed {args.email_arg}")
+        else:
+            print(f"⚠️  {args.email_arg} not in config (nothing to remove)")
+        return
+
+
 def cmd_verify(args):
     """Verify previously-unsubscribed senders are silent. Optionally escalate."""
     gmail = GmailCLI(args.email)
@@ -1406,6 +1440,20 @@ Examples:
     cs_init.add_argument('--force', action='store_true', help='Overwrite existing config')
     parser_config.set_defaults(func=cmd_config, subaction='show', force=False)
 
+    # Accounts command
+    parser_accounts = subparsers.add_parser(
+        'accounts',
+        help='List, add, or remove configured Gmail accounts',
+    )
+    accounts_subs = parser_accounts.add_subparsers(dest='subaction')
+    as_list = accounts_subs.add_parser('list', help='Show configured accounts')
+    as_add = accounts_subs.add_parser('add', help='Add or replace an account')
+    as_add.add_argument('email_arg', metavar='EMAIL', help='Email address')
+    as_add.add_argument('--label', help='Optional label (e.g. personal, work)')
+    as_remove = accounts_subs.add_parser('remove', help='Remove an account')
+    as_remove.add_argument('email_arg', metavar='EMAIL', help='Email address')
+    parser_accounts.set_defaults(func=cmd_accounts, subaction='list')
+
     # Mark-read command — clean up the archived-but-unread backlog
     parser_mark_read = subparsers.add_parser(
         'mark-read',
@@ -1482,7 +1530,7 @@ Examples:
         except ValueError as e:
             print(f"⚠️  {e}")
 
-    if args.command != 'config' and not args.email:
+    if args.command not in ('config', 'accounts') and not args.email:
         print("Error: Email address required. Set USER_GOOGLE_EMAIL env var,")
         print("       use --email, or run: gmail-cleanup config init")
         sys.exit(1)
