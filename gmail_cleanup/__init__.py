@@ -43,8 +43,11 @@ SCOPES = [
 UNSUB_HTTP_TIMEOUT = 5  # seconds
 UNSUB_USER_AGENT = 'Mozilla/5.0 (compatible; gmail-cli-unsubscribe/1.0)'
 
+# Repository root — used for all Path(__file__) references since module moved deeper
+_REPO_ROOT = Path(__file__).parent.parent
+
 # Configurable lists live in lists/*.yaml. Users edit them without touching code.
-LISTS_DIR = Path(__file__).parent.parent / 'lists'
+LISTS_DIR = _REPO_ROOT / 'lists'
 
 
 def _load_list(name: str) -> List[str]:
@@ -79,7 +82,7 @@ def _credentials_search_paths() -> List[Path]:
       1. $GMAIL_CLEANUP_CREDENTIALS env var (explicit path override)
       2. ~/.gmail_cli/credentials.json (canonical per-user location)
       3. ./credentials.json (current working directory — dev/repo convenience)
-      4. <package dir>/credentials.json (legacy — for running from a clone)
+      4. <repo root>/credentials.json (legacy — for running from a source checkout)
     """
     paths = []
     env_path = os.getenv('GMAIL_CLEANUP_CREDENTIALS')
@@ -87,7 +90,7 @@ def _credentials_search_paths() -> List[Path]:
         paths.append(Path(env_path).expanduser())
     paths.append(CREDS_DIR / 'credentials.json')
     paths.append(Path.cwd() / 'credentials.json')
-    paths.append(Path(__file__).parent / 'credentials.json')
+    paths.append(_REPO_ROOT / 'credentials.json')
     return paths
 
 
@@ -1422,7 +1425,7 @@ Examples:
         return
 
     # Load environment variables from .env before anything else
-    env_file = Path(__file__).parent / '.env'
+    env_file = _REPO_ROOT / '.env'
     if env_file.exists():
         with open(env_file) as f:
             for line in f:
