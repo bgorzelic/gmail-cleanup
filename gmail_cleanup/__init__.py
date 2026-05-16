@@ -1031,6 +1031,13 @@ def cmd_config(args):
     print(yaml.safe_dump(cfg, sort_keys=False, default_flow_style=False))
 
 
+def cmd_setup(args):
+    """Interactive OAuth setup wizard for new users."""
+    from gmail_cleanup.setup_wizard import run_wizard
+
+    run_wizard()
+
+
 def cmd_accounts(args):
     """Manage configured accounts (list / add / remove)."""
     from gmail_cleanup.accounts import list_accounts, add_account, remove_account
@@ -1696,6 +1703,13 @@ Examples:
     parser_atts.add_argument('--limit', type=int, default=1000, help='Max messages to scan')
     parser_atts.set_defaults(func=cmd_attachments)
 
+    # Setup wizard command
+    parser_setup = subparsers.add_parser(
+        'setup',
+        help='Interactive OAuth setup wizard for new users',
+    )
+    parser_setup.set_defaults(func=cmd_setup)
+
     # Schedule command (Mac-only in v0.5)
     parser_schedule = subparsers.add_parser(
         'schedule',
@@ -1745,7 +1759,7 @@ Examples:
             except ValueError as e:
                 print(f"⚠️  {e}")
 
-        if args.command not in ('config', 'accounts', 'schedule') and not args.email:
+        if args.command not in ('config', 'accounts', 'schedule', 'setup') and not args.email:
             print("Error: Email address required. Set USER_GOOGLE_EMAIL env var,")
             print("       use --email, or run: gmail-cleanup config init")
             sys.exit(1)
