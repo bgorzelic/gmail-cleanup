@@ -5,7 +5,7 @@ shielded from auto-unsubscribe. If this regresses, the tool could silently
 unsubscribe a user from their bank's fraud alerts.
 """
 
-import gmail_cli
+import gmail_cleanup as gmail_cli
 
 
 def _is_protected(sender: str) -> bool:

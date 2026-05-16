@@ -2,7 +2,7 @@
 
 import pytest
 
-import gmail_cli
+import gmail_cleanup as gmail_cli
 
 
 class TestExtractEmail:

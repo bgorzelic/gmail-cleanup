@@ -3,7 +3,7 @@
 import pytest
 import yaml
 
-import gmail_cli
+import gmail_cleanup as gmail_cli
 
 
 class TestLoadList:

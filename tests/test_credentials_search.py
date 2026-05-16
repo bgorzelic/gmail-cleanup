@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-import gmail_cli
+import gmail_cleanup as gmail_cli
 
 
 @pytest.fixture

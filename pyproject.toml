@@ -39,19 +39,19 @@ dev = [
 ]
 
 [project.scripts]
-gmail-cleanup = "gmail_cli:main"
+gmail-cleanup = "gmail_cleanup:main"
 
 [project.urls]
 Homepage = "https://github.com/bgorzelic/gmail-cleanup"
 Issues = "https://github.com/bgorzelic/gmail-cleanup/issues"
 
 [tool.hatch.build.targets.wheel]
-# Ship the CLI module plus the YAML lists alongside it.
-include = ["gmail_cli.py", "lists/**/*.yaml", "lists/README.md"]
+# Ship the CLI package plus the YAML lists alongside it.
+include = ["gmail_cleanup/**/*.py", "lists/**/*.yaml", "lists/README.md"]
 
 [tool.hatch.build.targets.sdist]
 include = [
-    "gmail_cli.py",
+    "gmail_cleanup/**",
     "lists/**",
     "tests/**",
     "README.md",

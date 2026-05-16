@@ -44,7 +44,7 @@ UNSUB_HTTP_TIMEOUT = 5  # seconds
 UNSUB_USER_AGENT = 'Mozilla/5.0 (compatible; gmail-cli-unsubscribe/1.0)'
 
 # Configurable lists live in lists/*.yaml. Users edit them without touching code.
-LISTS_DIR = Path(__file__).parent / 'lists'
+LISTS_DIR = Path(__file__).parent.parent / 'lists'
 
 
 def _load_list(name: str) -> List[str]:
