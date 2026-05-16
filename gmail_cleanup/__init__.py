@@ -607,6 +607,7 @@ def cmd_unsubscribe(args):
 
     # Execute.
     results = {'unsubscribed': 0, 'failed': 0, 'archive_only': 0, 'archived': 0}
+    newly_unsubbed = []
     for idx, (sender, count, lu, lup, in_kl) in enumerate(targets_to_process, 1):
         print(f"[{idx}/{len(targets_to_process)}] {sender} ({count} msgs)...", end=' ')
         unsub_ok = False
@@ -618,6 +619,7 @@ def cmd_unsubscribe(args):
             unsub_ok, method_used = _execute_unsubscribe(gmail, parsed, one_click)
             if unsub_ok:
                 results['unsubscribed'] += 1
+                newly_unsubbed.append(sender)
                 print(f"unsub ok ({method_used})", end='')
             else:
                 results['failed'] += 1
@@ -640,6 +642,15 @@ def cmd_unsubscribe(args):
                 print(f" → archived {len(sender_msgs[sender])}")
         else:
             print()
+
+    if newly_unsubbed:
+        from gmail_cleanup.lists_io import append_to_unsubbed
+        try:
+            added = append_to_unsubbed(newly_unsubbed)
+            if added:
+                print(f"\n📝 Added {len(added)} sender(s) to lists/unsubbed.yaml")
+        except (OSError, ValueError) as e:
+            print(f"\n⚠️  Could not update lists/unsubbed.yaml: {e}")
 
     print("\n" + "=" * 50)
     print("📊 Summary")
