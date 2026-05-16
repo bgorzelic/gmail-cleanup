@@ -650,6 +650,13 @@ def cmd_unsubscribe(args):
         except (OSError, ValueError) as e:
             print(f"\n⚠️  Could not update lists/unsubbed.yaml: {e}")
 
+    if results['unsubscribed'] or results['archived']:
+        from gmail_cleanup.state import append_event
+        append_event(args.email, source='unsubscribe', deltas={
+            'new_unsubs': results['unsubscribed'],
+            'routed': results['archived'],
+        })
+
     print("\n" + "=" * 50)
     print("📊 Summary")
     print(f"   Unsubscribed:        {results['unsubscribed']}")
@@ -1112,6 +1119,11 @@ def cmd_autopilot(args):
     print("🎉 Autopilot complete. Inbox state:\n")
     cmd_stats(Namespace(email=args.email))
 
+    from gmail_cleanup.state import append_event
+    append_event(args.email, source='autopilot', deltas={
+        'trigger': 'scheduled' if os.getenv('GMAIL_CLEANUP_SCHEDULED') else 'manual',
+    })
+
 
 def cmd_mark_read(args):
     """Bulk-mark matching messages as read."""
@@ -1143,6 +1155,9 @@ def cmd_mark_read(args):
             advance(p, by=len(batch))
 
     print(f"✅ Marked {len(messages):,} messages as read.")
+
+    from gmail_cleanup.state import append_event
+    append_event(args.email, source='mark-read', deltas={'unread_delta': -len(messages)})
 
 
 def cmd_archive(args):
