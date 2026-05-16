@@ -1465,6 +1465,17 @@ def cmd_label(args):
             print("✅ Archived")
 
 
+def cmd_schedule(args):
+    """Install/uninstall/status the launchd schedule for autopilot."""
+    from gmail_cleanup import scheduler
+    if args.subaction == 'install':
+        scheduler.install(args.email, args.time, args.escalate, args.force)
+    elif args.subaction == 'uninstall':
+        scheduler.uninstall()
+    elif args.subaction == 'status':
+        scheduler.status()
+
+
 def main():
     """Main CLI entry point"""
     parser = argparse.ArgumentParser(
@@ -1685,6 +1696,21 @@ Examples:
     parser_atts.add_argument('--limit', type=int, default=1000, help='Max messages to scan')
     parser_atts.set_defaults(func=cmd_attachments)
 
+    # Schedule command (Mac-only in v0.5)
+    parser_schedule = subparsers.add_parser(
+        'schedule',
+        help='Schedule autopilot to run daily (Mac-only in v0.5)',
+    )
+    sched_subs = parser_schedule.add_subparsers(dest='subaction')
+    sched_inst = sched_subs.add_parser('install', help='Create launchd job')
+    sched_inst.add_argument('--time', default='08:00', help='HH:MM local time (default: 08:00)')
+    sched_inst.add_argument('--escalate', action='store_true',
+                            help='Pass --escalate to autopilot (auto-block stuck senders)')
+    sched_inst.add_argument('--force', action='store_true', help='Overwrite existing job')
+    sched_unin = sched_subs.add_parser('uninstall', help='Remove launchd job')
+    sched_stat = sched_subs.add_parser('status', help='Show schedule status')
+    parser_schedule.set_defaults(func=cmd_schedule, subaction='status')
+
     args = parser.parse_args()
 
     from gmail_cleanup.progress import set_mode
@@ -1719,7 +1745,7 @@ Examples:
             except ValueError as e:
                 print(f"⚠️  {e}")
 
-        if args.command not in ('config', 'accounts') and not args.email:
+        if args.command not in ('config', 'accounts', 'schedule') and not args.email:
             print("Error: Email address required. Set USER_GOOGLE_EMAIL env var,")
             print("       use --email, or run: gmail-cleanup config init")
             sys.exit(1)
