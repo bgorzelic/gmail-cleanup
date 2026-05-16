@@ -1469,15 +1469,23 @@ Examples:
                     key, value = line.split('=', 1)
                     os.environ.setdefault(key, value)
 
-    # Re-check email after .env load
+    # Email resolution precedence:
+    #   1. --email CLI flag (already set on args.email if provided)
+    #   2. USER_GOOGLE_EMAIL env var
+    #   3. config.default_email
     if not args.email:
         args.email = os.getenv('USER_GOOGLE_EMAIL', '')
+    if not args.email:
+        from gmail_cleanup.config import load_config
+        try:
+            args.email = load_config().get('default_email') or ''
+        except ValueError as e:
+            print(f"⚠️  {e}")
 
-    # Skip email validation for commands that don't need it
-    if args.command != 'config':
-        if not args.email:
-            print("Error: Email address required. Set USER_GOOGLE_EMAIL env var or use --email")
-            sys.exit(1)
+    if args.command != 'config' and not args.email:
+        print("Error: Email address required. Set USER_GOOGLE_EMAIL env var,")
+        print("       use --email, or run: gmail-cleanup config init")
+        sys.exit(1)
 
     # Run command
     args.func(args)
