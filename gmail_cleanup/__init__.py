@@ -1512,10 +1512,14 @@ Examples:
                              help='Preview without taking action (skips mark-read + verify)')
     parser_auto.add_argument('--escalate', action='store_true',
                              help='In phase 4, auto-create block filters for stuck senders')
+    parser_auto.add_argument('--all-accounts', action='store_true',
+                             help='Run for every configured account')
     parser_auto.set_defaults(func=cmd_autopilot)
 
     # Stats command
     parser_stats = subparsers.add_parser('stats', help='Show inbox statistics')
+    parser_stats.add_argument('--all-accounts', action='store_true',
+                              help='Run for every configured account')
     parser_stats.set_defaults(func=cmd_stats)
 
     # Status command
@@ -1590,6 +1594,8 @@ Examples:
                                help='Max messages to count per sender (default: 100)')
     parser_verify.add_argument('--escalate', action='store_true',
                                help='Auto-create a block filter (auto-trash) for each stuck sender')
+    parser_verify.add_argument('--all-accounts', action='store_true',
+                               help='Run for every configured account')
     parser_verify.set_defaults(func=cmd_verify)
 
     # Config command
@@ -1702,22 +1708,45 @@ Examples:
     #   1. --email CLI flag (already set on args.email if provided)
     #   2. USER_GOOGLE_EMAIL env var
     #   3. config.default_email
-    if not args.email:
-        args.email = os.getenv('USER_GOOGLE_EMAIL', '')
-    if not args.email:
-        from gmail_cleanup.config import load_config
-        try:
-            args.email = load_config().get('default_email') or ''
-        except ValueError as e:
-            print(f"⚠️  {e}")
+    # Skip if --all-accounts is set; it will provide email per iteration
+    if not getattr(args, 'all_accounts', False):
+        if not args.email:
+            args.email = os.getenv('USER_GOOGLE_EMAIL', '')
+        if not args.email:
+            from gmail_cleanup.config import load_config
+            try:
+                args.email = load_config().get('default_email') or ''
+            except ValueError as e:
+                print(f"⚠️  {e}")
 
-    if args.command not in ('config', 'accounts') and not args.email:
-        print("Error: Email address required. Set USER_GOOGLE_EMAIL env var,")
-        print("       use --email, or run: gmail-cleanup config init")
-        sys.exit(1)
+        if args.command not in ('config', 'accounts') and not args.email:
+            print("Error: Email address required. Set USER_GOOGLE_EMAIL env var,")
+            print("       use --email, or run: gmail-cleanup config init")
+            sys.exit(1)
 
     # Run command
-    args.func(args)
+    if getattr(args, 'all_accounts', False):
+        from gmail_cleanup.accounts import list_accounts
+        accounts = list_accounts()
+        if not accounts:
+            print("❌ --all-accounts requires accounts in config.")
+            print("   Run: gmail-cleanup accounts add EMAIL")
+            sys.exit(1)
+        failures = []
+        for acc in accounts:
+            email = acc['email']
+            print(f"\n━━━ {email} ━━━")
+            args.email = email
+            try:
+                args.func(args)
+            except Exception as e:
+                print(f"❌ Failed for {email}: {e}")
+                failures.append(email)
+        print(f"\n=== --all-accounts summary ===")
+        print(f"   Total: {len(accounts)}   Failed: {len(failures)}")
+        sys.exit(len(failures))
+    else:
+        args.func(args)
 
 
 if __name__ == '__main__':
