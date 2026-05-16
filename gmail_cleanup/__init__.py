@@ -921,6 +921,30 @@ def cmd_filters(args):
     print(f"   Failed:             {failed}")
 
 
+def cmd_config(args):
+    """Show loaded config or initialize a starter file."""
+    from gmail_cleanup.config import load_config, init_config, find_config_file
+
+    if args.subaction == 'init':
+        try:
+            path = init_config(force=args.force)
+        except FileExistsError as e:
+            print(f"❌ {e}")
+            sys.exit(1)
+        print(f"✅ Starter config written to {path}")
+        return
+
+    # default: show
+    path = find_config_file()
+    cfg = load_config()
+    if path:
+        print(f"📋 Config: {path}")
+    else:
+        print(f"📋 Config: (none — using built-in defaults)")
+    print()
+    print(yaml.safe_dump(cfg, sort_keys=False, default_flow_style=False))
+
+
 def cmd_verify(args):
     """Verify previously-unsubscribed senders are silent. Optionally escalate."""
     gmail = GmailCLI(args.email)
@@ -1371,6 +1395,17 @@ Examples:
                                help='Auto-create a block filter (auto-trash) for each stuck sender')
     parser_verify.set_defaults(func=cmd_verify)
 
+    # Config command
+    parser_config = subparsers.add_parser(
+        'config',
+        help='Show or initialize the gmail-cleanup config file',
+    )
+    config_subs = parser_config.add_subparsers(dest='subaction')
+    cs_show = config_subs.add_parser('show', help='Print resolved config')
+    cs_init = config_subs.add_parser('init', help='Write a starter config to ~/.gmail_cli/config.yaml')
+    cs_init.add_argument('--force', action='store_true', help='Overwrite existing config')
+    parser_config.set_defaults(func=cmd_config, subaction='show', force=False)
+
     # Mark-read command — clean up the archived-but-unread backlog
     parser_mark_read = subparsers.add_parser(
         'mark-read',
@@ -1438,9 +1473,11 @@ Examples:
     if not args.email:
         args.email = os.getenv('USER_GOOGLE_EMAIL', '')
 
-    if not args.email:
-        print("Error: Email address required. Set USER_GOOGLE_EMAIL env var or use --email")
-        sys.exit(1)
+    # Skip email validation for commands that don't need it
+    if args.command != 'config':
+        if not args.email:
+            print("Error: Email address required. Set USER_GOOGLE_EMAIL env var or use --email")
+            sys.exit(1)
 
     # Run command
     args.func(args)

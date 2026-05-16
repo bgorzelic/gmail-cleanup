@@ -83,3 +83,46 @@ def load_config() -> dict[str, Any]:
             f"{path} must be a YAML mapping (got {type(user).__name__})"
         )
     return _deep_merge(copy.deepcopy(DEFAULTS), user)
+
+
+def init_config(force: bool = False) -> Path:
+    """Write a starter config file to the canonical location.
+
+    Creates ~/.gmail_cli/config.yaml with commented-out examples.
+
+    Args:
+        force: If True, overwrite existing config. If False, raise FileExistsError.
+
+    Returns:
+        Path to the created config file.
+
+    Raises:
+        FileExistsError: If config already exists and force=False.
+    """
+    path = Path.home() / '.gmail_cli' / 'config.yaml'
+    if path.exists() and not force:
+        raise FileExistsError(
+            f"Config already exists at {path}. Use --force to overwrite."
+        )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    starter = """# gmail-cleanup config — created by `gmail-cleanup config init`
+
+# default_email: you@gmail.com
+
+accounts: []
+# accounts:
+#   - email: you@gmail.com
+#     label: personal
+
+# lists_dir: ~/.gmail_cli/lists
+
+defaults:
+  unsubscribe:
+    days: 30
+    min_count: 2
+  verify:
+    days: 14
+  account_timeout: 300
+"""
+    path.write_text(starter)
+    return path

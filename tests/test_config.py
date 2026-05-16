@@ -84,3 +84,26 @@ defaults:
         )
         with pytest.raises(ValueError, match='must be a YAML mapping'):
             load_config()
+
+
+class TestConfigInit:
+    def test_init_creates_file_in_canonical_location(self, isolated_env):
+        from gmail_cleanup.config import init_config, load_config
+        path = init_config()
+        assert path == Path(os.environ['HOME']) / '.gmail_cli' / 'config.yaml'
+        assert path.exists()
+        loaded = load_config()
+        assert 'defaults' in loaded
+
+    def test_init_refuses_overwrite_without_force(self, isolated_env):
+        from gmail_cleanup.config import init_config
+        init_config()
+        with pytest.raises(FileExistsError):
+            init_config(force=False)
+
+    def test_init_overwrites_with_force(self, isolated_env):
+        from gmail_cleanup.config import init_config
+        path = init_config()
+        path.write_text("default_email: you@gmail.com\n")
+        init_config(force=True)
+        assert "default_email" in path.read_text()
