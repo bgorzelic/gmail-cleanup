@@ -24,6 +24,8 @@ from datetime import datetime, timedelta
 
 import yaml
 
+from gmail_cleanup.progress import progress_for, advance
+
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -352,19 +354,18 @@ def cmd_top_senders(args):
 
     # Count senders
     sender_counts = defaultdict(int)
-    for i, msg in enumerate(messages):
-        if i % 100 == 0:
-            print(f"Progress: {i}/{len(messages)}", end='\r')
+    with progress_for("Analyzing senders", total=len(messages)) as p:
+        for msg in messages:
+            full_msg = gmail.get_message(msg['id'], format='metadata')
+            if full_msg:
+                sender = gmail.get_header(full_msg, 'From')
+                # Extract email from "Name <email@domain.com>" format
+                if '<' in sender:
+                    sender = sender.split('<')[1].rstrip('>')
+                sender_counts[sender] += 1
+            advance(p)
 
-        full_msg = gmail.get_message(msg['id'], format='metadata')
-        if full_msg:
-            sender = gmail.get_header(full_msg, 'From')
-            # Extract email from "Name <email@domain.com>" format
-            if '<' in sender:
-                sender = sender.split('<')[1].rstrip('>')
-            sender_counts[sender] += 1
-
-    print("\n")
+    print()
     print("=" * 80)
     print(f"{'Rank':<6} {'Count':<8} {'Email':<50}")
     print("=" * 80)
@@ -399,20 +400,19 @@ def cmd_find_subscriptions(args):
 
     # Count by sender
     sender_counts = defaultdict(list)
-    for i, msg in enumerate(messages):
-        if i % 100 == 0:
-            print(f"Progress: {i}/{len(messages)}", end='\r')
+    with progress_for("Analyzing senders", total=len(messages)) as p:
+        for msg in messages:
+            full_msg = gmail.get_message(msg['id'], format='metadata')
+            if full_msg:
+                sender = gmail.get_header(full_msg, 'From')
+                if '<' in sender:
+                    email = sender.split('<')[1].rstrip('>')
+                else:
+                    email = sender
+                sender_counts[email].append(msg['id'])
+            advance(p)
 
-        full_msg = gmail.get_message(msg['id'], format='metadata')
-        if full_msg:
-            sender = gmail.get_header(full_msg, 'From')
-            if '<' in sender:
-                email = sender.split('<')[1].rstrip('>')
-            else:
-                email = sender
-            sender_counts[email].append(msg['id'])
-
-    print("\n")
+    print()
     print("=" * 90)
     print(f"{'Rank':<6} {'Count':<8} {'Sender':<50} {'Action':<20}")
     print("=" * 90)
@@ -523,18 +523,16 @@ def cmd_unsubscribe(args):
     sender_msgs: Dict[str, List[str]] = defaultdict(list)
     sender_first_msg: Dict[str, str] = {}
 
-    for i, msg in enumerate(messages):
-        if i % 50 == 0:
-            print(f"   Analyzing: {i}/{len(messages)}", end='\r')
-        full_msg = gmail.get_message(msg['id'], format='metadata')
-        if not full_msg:
-            continue
-        sender = _extract_email(gmail.get_header(full_msg, 'From'))
-        if not sender:
-            continue
-        sender_msgs[sender].append(msg['id'])
-        if sender not in sender_first_msg:
-            sender_first_msg[sender] = msg['id']
+    with progress_for("Analyzing inbox", total=len(messages)) as p:
+        for msg in messages:
+            full_msg = gmail.get_message(msg['id'], format='metadata')
+            if full_msg:
+                sender = _extract_email(gmail.get_header(full_msg, 'From'))
+                if sender:
+                    sender_msgs[sender].append(msg['id'])
+                    if sender not in sender_first_msg:
+                        sender_first_msg[sender] = msg['id']
+            advance(p)
 
     print(f"   Analyzed {len(messages):,} messages, {len(sender_msgs)} unique senders\n")
 
@@ -1137,13 +1135,14 @@ def cmd_mark_read(args):
 
     print("\n📖 Marking as read...")
     batch_size = 1000
-    for i in range(0, len(messages), batch_size):
-        batch = messages[i:i + batch_size]
-        msg_ids = [msg['id'] for msg in batch]
-        gmail.batch_modify_messages(msg_ids, remove_labels=['UNREAD'])
-        print(f"   {min(i + batch_size, len(messages)):,}/{len(messages):,}", end='\r')
+    with progress_for("Marking as read", total=len(messages)) as p:
+        for i in range(0, len(messages), batch_size):
+            batch = messages[i:i + batch_size]
+            msg_ids = [msg['id'] for msg in batch]
+            gmail.batch_modify_messages(msg_ids, remove_labels=['UNREAD'])
+            advance(p, by=len(batch))
 
-    print(f"\n✅ Marked {len(messages):,} messages as read.")
+    print(f"✅ Marked {len(messages):,} messages as read.")
 
 
 def cmd_archive(args):
@@ -1195,16 +1194,17 @@ def cmd_archive(args):
 
     # Archive in batches of 1000
     batch_size = 1000
-    for i in range(0, len(messages), batch_size):
-        batch = messages[i:i + batch_size]
-        msg_ids = [msg['id'] for msg in batch]
+    with progress_for("Archiving", total=len(messages)) as p:
+        for i in range(0, len(messages), batch_size):
+            batch = messages[i:i + batch_size]
+            msg_ids = [msg['id'] for msg in batch]
 
-        # Remove INBOX label to archive
-        gmail.batch_modify_messages(msg_ids, remove_labels=['INBOX'])
+            # Remove INBOX label to archive
+            gmail.batch_modify_messages(msg_ids, remove_labels=['INBOX'])
 
-        print(f"Archived {min(i + batch_size, len(messages)):,}/{len(messages):,}", end='\r')
+            advance(p, by=len(batch))
 
-    print(f"\n✅ Archived {len(messages):,} emails")
+    print(f"✅ Archived {len(messages):,} emails")
 
 
 def cmd_delete(args):
@@ -1258,15 +1258,16 @@ def cmd_delete(args):
 
     # Add TRASH label in batches
     batch_size = 1000
-    for i in range(0, len(messages), batch_size):
-        batch = messages[i:i + batch_size]
-        msg_ids = [msg['id'] for msg in batch]
+    with progress_for("Deleting", total=len(messages)) as p:
+        for i in range(0, len(messages), batch_size):
+            batch = messages[i:i + batch_size]
+            msg_ids = [msg['id'] for msg in batch]
 
-        gmail.batch_modify_messages(msg_ids, add_labels=['TRASH'], remove_labels=['INBOX'])
+            gmail.batch_modify_messages(msg_ids, add_labels=['TRASH'], remove_labels=['INBOX'])
 
-        print(f"Deleted {min(i + batch_size, len(messages)):,}/{len(messages):,}", end='\r')
+            advance(p, by=len(batch))
 
-    print(f"\n✅ Moved {len(messages):,} emails to trash")
+    print(f"✅ Moved {len(messages):,} emails to trash")
 
 
 def cmd_label(args):
@@ -1303,15 +1304,16 @@ def cmd_label(args):
 
         # Apply label in batches
         batch_size = 1000
-        for i in range(0, len(messages), batch_size):
-            batch = messages[i:i + batch_size]
-            msg_ids = [msg['id'] for msg in batch]
+        with progress_for("Labeling", total=len(messages)) as p:
+            for i in range(0, len(messages), batch_size):
+                batch = messages[i:i + batch_size]
+                msg_ids = [msg['id'] for msg in batch]
 
-            gmail.batch_modify_messages(msg_ids, add_labels=[label_id])
+                gmail.batch_modify_messages(msg_ids, add_labels=[label_id])
 
-            print(f"Labeled {min(i + batch_size, len(messages)):,}/{len(messages):,}", end='\r')
+                advance(p, by=len(batch))
 
-        print(f"\n✅ Applied label to {len(messages):,} emails")
+        print(f"✅ Applied label to {len(messages):,} emails")
 
         if args.archive:
             print("\n📦 Archiving labeled emails...")
@@ -1355,6 +1357,8 @@ Examples:
     # Global options
     parser.add_argument('--email', default=os.getenv('USER_GOOGLE_EMAIL', ''),
                        help='Gmail address (default: from USER_GOOGLE_EMAIL env var)')
+    parser.add_argument('--quiet', action='store_true', help='Suppress progress UI (cron-friendly)')
+    parser.add_argument('--verbose', action='store_true', help='Show extra debug info')
 
     subparsers = parser.add_subparsers(dest='command', help='Command to run')
 
@@ -1513,6 +1517,9 @@ Examples:
     parser_label.set_defaults(func=cmd_label)
 
     args = parser.parse_args()
+
+    from gmail_cleanup.progress import set_mode
+    set_mode('quiet' if args.quiet else 'verbose' if args.verbose else 'normal')
 
     if not args.command:
         parser.print_help()
