@@ -459,6 +459,8 @@ if not args.email:
 
 - [ ] **Step 4.2: Smoke test**
 
+> ⚠️ This step requires an existing authorized OAuth token cache for the email used. Skip on CI / clean environments — only run on a dev machine where you've already authorized the account.
+
 ```bash
 .venv/bin/gmail-cleanup config init --force
 sed -i '' 's|# default_email: you@gmail.com|default_email: bgorzelic@gmail.com|' ~/.gmail_cli/config.yaml
@@ -912,7 +914,9 @@ from gmail_cleanup.progress import set_mode
 set_mode('quiet' if args.quiet else 'verbose' if args.verbose else 'normal')
 ```
 
-- [ ] **Step 8.5: Replace `\r` progress in `cmd_top_senders`, `cmd_unsubscribe`, `cmd_mark_read`**
+- [ ] **Step 8.5: Replace `\r` progress in inner loops**
+
+Apply this pattern to every command that currently uses `\r`-style progress output: `cmd_top_senders`, `cmd_unsubscribe`, `cmd_mark_read`, `cmd_archive`, `cmd_delete`, `cmd_verify`. Grep for `end='\r'` to find all sites.
 
 Pattern:
 ```python
@@ -1102,6 +1106,8 @@ git commit -m "feat(state): autopilot/unsubscribe/mark-read append events to sta
 **Files:**
 - Modify: `gmail_cleanup/__init__.py` (add `cmd_status`)
 
+> **Pre-check:** Confirm `VETTED_KILL_LIST`, `UNSUB_KEEP_LIST`, `HUMANS_WHITELIST`, `UNSUBBED_SENDERS`, and `_list_filters` are all defined at module scope in `gmail_cleanup/__init__.py` (they are in v0.4 baseline). If a future refactor nests any of these inside a function, the references below need updating.
+
 **Steps:**
 
 - [ ] **Step 11.1: Implement `cmd_status`**
@@ -1174,6 +1180,8 @@ git commit -m "feat(status): add inbox dashboard command"
 **Files:**
 - Modify: `gmail_cleanup/__init__.py` (add `_parse_size` + `cmd_attachments`)
 - Create: `tests/test_attachments_parse.py`
+
+> **Helpers used (already in v0.4 baseline):** `gmail.search_messages(query, max_results)`, `gmail.get_message(id, format='metadata')`, `gmail.get_header(msg, name)`, `gmail.batch_modify_messages(ids, add_labels=[], remove_labels=[])`, module-level `_extract_email(from_header)`. Verify each signature in `gmail_cleanup/__init__.py` before implementing.
 
 **Steps:**
 
@@ -1319,6 +1327,8 @@ parser_auto.add_argument('--all-accounts', action='store_true',
 ```
 
 - [ ] **Step 13.2: Intercept dispatch in `main()`**
+
+> **OAuth note:** `GmailCLI(email)` reads its token cache from `~/.gmail_cli/token_<email>.*` per-account (see `_token_path()` in v0.4 baseline). Each iteration through the loop constructs a fresh `GmailCLI`, so per-account auth is automatic — no module-level auth state to worry about.
 
 Replace the final `args.func(args)` with:
 ```python
@@ -1707,6 +1717,8 @@ parser_setup.set_defaults(func=cmd_setup)
 ```
 
 - [ ] **Step 15.3: Exempt `setup` from email-required check in `main()`**
+
+> **Pre-check:** Verify `subparsers = parser.add_subparsers(dest='command', ...)` is set with `dest='command'` in v0.4 baseline. If it isn't, use `args.func.__name__ == 'cmd_setup'` as the sentinel instead. Grep for `add_subparsers` to confirm.
 
 Modify:
 ```python
