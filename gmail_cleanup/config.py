@@ -10,6 +10,7 @@ Returns a dict with all keys filled in (deep-merged with built-in defaults).
 
 from __future__ import annotations
 
+import copy
 import os
 from pathlib import Path
 from typing import Any
@@ -69,9 +70,9 @@ def load_config() -> dict[str, Any]:
     """
     path = find_config_file()
     if not path:
-        return _deep_merge({}, DEFAULTS)
+        return copy.deepcopy(DEFAULTS)
     try:
-        with open(path) as f:
+        with open(path, encoding='utf-8') as f:
             user = yaml.safe_load(f)
     except yaml.YAMLError as e:
         raise ValueError(f"Could not parse {path}: {e}") from e
@@ -81,4 +82,4 @@ def load_config() -> dict[str, Any]:
         raise ValueError(
             f"{path} must be a YAML mapping (got {type(user).__name__})"
         )
-    return _deep_merge(DEFAULTS, user)
+    return _deep_merge(copy.deepcopy(DEFAULTS), user)
