@@ -506,6 +506,17 @@ def _parse_size(s: str) -> int:
         raise ValueError(f"Could not parse size {s!r}") from e
 
 
+def _build_attachments_query(over: str, older_than: int | None, include_protected: bool) -> str:
+    """Build the Gmail query used by the attachments cleanup command."""
+    over_str = over.upper().rstrip('B')  # 10MB -> 10M
+    parts = [f"has:attachment larger:{over_str}"]
+    if not include_protected:
+        parts.extend(['-is:starred', '-is:important'])
+    if older_than:
+        parts.append(f"older_than:{older_than}d")
+    return ' '.join(parts)
+
+
 def _parse_list_unsubscribe(header_value: str) -> List[Tuple[str, str]]:
     """Parse a List-Unsubscribe header into [(method, target), ...].
 
@@ -1241,10 +1252,7 @@ def cmd_attachments(args):
     """Find oversized old emails. Preview by default; --archive or --delete to act."""
     gmail = GmailCLI(args.email)
     _ = _parse_size(args.over)  # validates the input
-    over_str = args.over.upper().rstrip('B')  # 10MB -> 10M
-    query = f"has:attachment larger:{over_str}"
-    if args.older_than:
-        query += f" older_than:{args.older_than}d"
+    query = _build_attachments_query(args.over, args.older_than, args.include_protected)
 
     print(f"🔍 Searching: {query}\n")
     messages = gmail.search_messages(query, max_results=args.limit)
@@ -1696,6 +1704,8 @@ Examples:
     parser_atts.add_argument('--over', default='10mb', help='Minimum size (default: 10mb)')
     parser_atts.add_argument('--older-than', type=int, default=180,
                              help='Only emails older than N days (default: 180)')
+    parser_atts.add_argument('--include-protected', action='store_true',
+                             help='Include starred/important emails')
     parser_atts.add_argument('--archive', action='store_true', help='Archive matching emails')
     parser_atts.add_argument('--delete', action='store_true', help='Move matching to Trash')
     parser_atts.add_argument('--dry-run', action='store_true', help='Preview only')

@@ -130,7 +130,7 @@ Each phase also works standalone. Autopilot is the convenience composition.
 | `unsubscribe --days N --min-count K` | One-click unsubscribe noise senders + archive their mail |
 | `mark-read --query Q` | Bulk-mark messages as read (default: archived-but-unread backlog) |
 | `verify --since YYYY-MM-DD [--escalate]` | Check whether prior unsubs are still arriving; auto-block stuck senders |
-| `attachments [--archive\|--delete]` | Find oversized old emails, rank by bytes |
+| `attachments [--archive\|--delete]` | Find oversized old emails, rank by bytes; skips starred/important unless `--include-protected` |
 | `filters apply / list` | Create/upgrade/list Gmail filters |
 | `config show / init` | Manage `~/.gmail_cli/config.yaml` |
 | `accounts list / add / remove` | Manage multi-account roster |
