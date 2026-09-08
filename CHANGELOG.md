@@ -4,6 +4,9 @@ All notable changes to this project. Format loosely based on [Keep a Changelog](
 
 ## [Unreleased]
 
+### Changed
+- **`gmail-cleanup attachments`** now skips starred and important messages by default. Pass `--include-protected` to explicitly include them in storage-cleanup actions.
+
 ## [0.5.2] — 2026-05-16
 
 The "professional polish" release. No behavior changes — README rewrite, stale-reference fixes, GitHub About updated.
