@@ -1197,9 +1197,19 @@ def cmd_autopilot(args):
     cmd_stats(Namespace(email=args.email))
 
     from gmail_cleanup.state import append_event
-    append_event(args.email, source='autopilot', deltas={
-        'trigger': 'scheduled' if os.getenv('GMAIL_CLEANUP_SCHEDULED') else 'manual',
-    })
+    trigger = 'scheduled' if os.getenv('GMAIL_CLEANUP_SCHEDULED') else 'manual'
+    append_event(args.email, source='autopilot', deltas={'trigger': trigger})
+
+    from gmail_cleanup.config import load_config
+    from gmail_cleanup.notify import notify_if_configured
+
+    notify_if_configured(
+        load_config(),
+        args.email,
+        dry_run=args.dry_run,
+        escalate=args.escalate,
+        trigger=trigger,
+    )
 
 
 def cmd_mark_read(args):

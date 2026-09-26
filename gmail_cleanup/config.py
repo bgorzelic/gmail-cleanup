@@ -26,6 +26,7 @@ DEFAULTS: dict[str, Any] = {
         'verify': {'days': 14},
         'account_timeout': 300,
     },
+    'notify': {'webhook_url': None},
 }
 
 
@@ -123,6 +124,9 @@ defaults:
   verify:
     days: 14
   account_timeout: 300
+
+# notify:
+#   webhook_url: https://hooks.example.com/your-webhook
 """
     path.write_text(starter)
     return path
