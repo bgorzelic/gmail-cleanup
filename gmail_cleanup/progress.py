@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from contextlib import contextmanager
-from typing import Iterator, Optional, Tuple
 
 from rich.console import Console
 from rich.progress import (
@@ -39,7 +39,7 @@ def vprint(*args, **kwargs) -> None:
 
 
 @contextmanager
-def progress_for(description: str, total: int) -> Iterator[Optional[Tuple[Progress, TaskID]]]:
+def progress_for(description: str, total: int) -> Iterator[tuple[Progress, TaskID] | None]:
     if _MODE == 'quiet' or total == 0:
         yield None
         return

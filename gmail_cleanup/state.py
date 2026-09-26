@@ -7,7 +7,7 @@ summarize. History capped at 30 entries.
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -39,7 +39,7 @@ def read_state(email: str) -> dict[str, Any]:
 
 def append_event(email: str, source: str, deltas: dict[str, Any]) -> None:
     state = read_state(email)
-    now = datetime.now(timezone.utc).isoformat(timespec='seconds')
+    now = datetime.now(UTC).isoformat(timespec='seconds')
     event = {'at': now, 'source': source, **deltas}
     state.setdefault('history', []).append(event)
     state['history'] = state['history'][-HISTORY_MAX:]

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import yaml
 
@@ -18,7 +18,7 @@ def _config_path_or_init() -> Path:
     return path
 
 
-def _load_raw_config() -> Dict[str, Any]:
+def _load_raw_config() -> dict[str, Any]:
     """Load config file's raw dict (without merging defaults)."""
     path = _config_path_or_init()
     with open(path, encoding='utf-8') as f:
@@ -28,22 +28,22 @@ def _load_raw_config() -> Dict[str, Any]:
     return data
 
 
-def _save_raw_config(data: Dict[str, Any]) -> None:
+def _save_raw_config(data: dict[str, Any]) -> None:
     """Save raw config dict back to file."""
     path = _config_path_or_init()
     path.write_text(yaml.safe_dump(data, sort_keys=False, default_flow_style=False))
 
 
-def list_accounts() -> List[Dict[str, Any]]:
+def list_accounts() -> list[dict[str, Any]]:
     """List all configured accounts."""
     return list(_load_raw_config().get('accounts') or [])
 
 
-def add_account(email: str, label: Optional[str] = None) -> Dict[str, Any]:
+def add_account(email: str, label: str | None = None) -> dict[str, Any]:
     """Add or replace an account entry. Returns the stored record."""
     data = _load_raw_config()
     accounts = [a for a in (data.get('accounts') or []) if a.get('email') != email]
-    record: Dict[str, Any] = {'email': email}
+    record: dict[str, Any] = {'email': email}
     if label:
         record['label'] = label
     accounts.append(record)

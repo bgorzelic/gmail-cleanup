@@ -6,7 +6,6 @@ import platform
 import subprocess
 from pathlib import Path
 
-
 PLIST_LABEL = 'com.github.bgorzelic.gmail-cleanup'
 LAUNCHAGENTS_DIR = Path.home() / 'Library' / 'LaunchAgents'
 PLIST_PATH = LAUNCHAGENTS_DIR / f'{PLIST_LABEL}.plist'
@@ -24,7 +23,7 @@ def install(email: str, time_hhmm: str, escalate: bool, force: bool = False) -> 
     ensure_mac()
     if PLIST_PATH.exists() and not force:
         print(f"❌ Job already at {PLIST_PATH}.")
-        print(f"   Use --force or run: gmail-cleanup schedule uninstall")
+        print("   Use --force or run: gmail-cleanup schedule uninstall")
         raise SystemExit(1)
 
     LOG_DIR.mkdir(parents=True, exist_ok=True)
@@ -91,13 +90,13 @@ def uninstall() -> None:
         return
     subprocess.run(['launchctl', 'unload', str(PLIST_PATH)], capture_output=True)
     PLIST_PATH.unlink()
-    print(f"✅ Scheduled job removed.")
+    print("✅ Scheduled job removed.")
 
 
 def status() -> None:
     ensure_mac()
     if not PLIST_PATH.exists():
-        print(f"ℹ️  No scheduled job. Install with: gmail-cleanup schedule install")
+        print("ℹ️  No scheduled job. Install with: gmail-cleanup schedule install")
         return
     res = subprocess.run(['launchctl', 'list', PLIST_LABEL], capture_output=True, text=True)
     print(f"📋 Plist:   {PLIST_PATH}")
@@ -106,4 +105,4 @@ def status() -> None:
     if res.returncode == 0:
         print(f"\n{res.stdout}")
     else:
-        print(f"⚠️  launchctl reports the job is not loaded.")
+        print("⚠️  launchctl reports the job is not loaded.")

@@ -6,31 +6,28 @@ A powerful command-line tool for cleaning up and organizing Gmail.
 Uses OAuth credentials to access Gmail API directly.
 """
 
+import argparse
+import base64
 import os
+import pickle
 import re
 import sys
-import json
-import base64
+import urllib.error
 import urllib.parse
 import urllib.request
-import urllib.error
-from email.message import EmailMessage
-import pickle
-import argparse
-from pathlib import Path
-from typing import List, Dict, Any, Optional, Tuple
 from collections import defaultdict
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
+from email.message import EmailMessage
+from pathlib import Path
+from typing import Any
 
 import yaml
-
-from gmail_cleanup.progress import progress_for, advance
-
 from google.auth.transport.requests import Request
-from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
+
+from gmail_cleanup.progress import advance, progress_for
 
 # OAuth scopes needed for Gmail operations
 SCOPES = [
@@ -52,7 +49,7 @@ _REPO_ROOT = Path(__file__).parent.parent
 LISTS_DIR = _REPO_ROOT / 'lists'
 
 
-def _load_list(name: str) -> List[str]:
+def _load_list(name: str) -> list[str]:
     """Load a YAML list file from lists/. Returns [] if missing.
 
     Raises ValueError if the file exists but isn't a top-level YAML list.
@@ -77,7 +74,7 @@ CREDS_DIR = Path.home() / '.gmail_cli'
 LEGACY_TOKEN_FILE = CREDS_DIR / 'token.pickle'
 
 
-def _credentials_search_paths() -> List[Path]:
+def _credentials_search_paths() -> list[Path]:
     """Return the ordered list of paths where we look for credentials.json.
 
     First match wins. Order:
@@ -96,7 +93,7 @@ def _credentials_search_paths() -> List[Path]:
     return paths
 
 
-def _find_credentials_file() -> Optional[Path]:
+def _find_credentials_file() -> Path | None:
     """Walk the search paths and return the first credentials.json that exists."""
     for p in _credentials_search_paths():
         if p.is_file():
@@ -149,11 +146,11 @@ class GmailCLI:
                             print(f"  • {p}")
                         print()
                         print("To get started:")
-                        print(f"  1. Visit https://console.cloud.google.com/apis/credentials")
-                        print(f"     and create an OAuth 2.0 Client ID of type 'Desktop app'.")
-                        print(f"  2. Download the JSON and save it as:")
+                        print("  1. Visit https://console.cloud.google.com/apis/credentials")
+                        print("     and create an OAuth 2.0 Client ID of type 'Desktop app'.")
+                        print("  2. Download the JSON and save it as:")
                         print(f"     {CREDS_DIR / 'credentials.json'}")
-                        print(f"  3. Re-run this command.")
+                        print("  3. Re-run this command.")
                         print()
                         print("Or set GOOGLE_OAUTH_CLIENT_ID and GOOGLE_OAUTH_CLIENT_SECRET env vars.")
                         sys.exit(1)
@@ -183,7 +180,7 @@ class GmailCLI:
         self.service = build('gmail', 'v1', credentials=creds)
         print(f"✅ Authenticated as {self.user_email}\n")
 
-    def get_labels(self) -> List[Dict[str, Any]]:
+    def get_labels(self) -> list[dict[str, Any]]:
         """Get all Gmail labels"""
         try:
             results = self.service.users().labels().list(userId='me').execute()
@@ -192,7 +189,7 @@ class GmailCLI:
             print(f"❌ Error fetching labels: {error}")
             return []
 
-    def search_messages(self, query: str, max_results: int = 100) -> List[Dict[str, Any]]:
+    def search_messages(self, query: str, max_results: int = 100) -> list[dict[str, Any]]:
         """Search for messages matching query"""
         try:
             messages = []
@@ -215,7 +212,7 @@ class GmailCLI:
             print(f"❌ Error searching messages: {error}")
             return []
 
-    def get_message(self, message_id: str, format: str = 'full') -> Optional[Dict[str, Any]]:
+    def get_message(self, message_id: str, format: str = 'full') -> dict[str, Any] | None:
         """Get a specific message"""
         try:
             return self.service.users().messages().get(
@@ -227,7 +224,7 @@ class GmailCLI:
             print(f"❌ Error fetching message {message_id}: {error}")
             return None
 
-    def get_header(self, message: Dict[str, Any], header_name: str) -> str:
+    def get_header(self, message: dict[str, Any], header_name: str) -> str:
         """Extract header value from message"""
         headers = message.get('payload', {}).get('headers', [])
         for header in headers:
@@ -235,8 +232,8 @@ class GmailCLI:
                 return header['value']
         return ''
 
-    def modify_message(self, message_id: str, add_labels: List[str] = None,
-                      remove_labels: List[str] = None):
+    def modify_message(self, message_id: str, add_labels: list[str] = None,
+                      remove_labels: list[str] = None):
         """Modify message labels"""
         try:
             body = {}
@@ -253,8 +250,8 @@ class GmailCLI:
         except HttpError as error:
             print(f"❌ Error modifying message {message_id}: {error}")
 
-    def batch_modify_messages(self, message_ids: List[str], add_labels: List[str] = None,
-                             remove_labels: List[str] = None):
+    def batch_modify_messages(self, message_ids: list[str], add_labels: list[str] = None,
+                             remove_labels: list[str] = None):
         """Batch modify message labels"""
         try:
             body = {'ids': message_ids}
@@ -288,7 +285,7 @@ class GmailCLI:
             print(f"❌ Error sending unsubscribe email to {to}: {error}")
             return False
 
-    def create_label(self, label_name: str) -> Optional[str]:
+    def create_label(self, label_name: str) -> str | None:
         """Create a new label and return its ID"""
         try:
             label = self.service.users().labels().create(
@@ -337,8 +334,10 @@ def cmd_stats(args):
 
 def cmd_status(args):
     """Show inbox health dashboard."""
-    from datetime import datetime, timezone, timedelta
+    from datetime import datetime, timedelta
+
     from rich.console import Console
+
     from gmail_cleanup.state import read_state
 
     gmail = GmailCLI(args.email)
@@ -368,7 +367,7 @@ def cmd_status(args):
     last_ap = state.get('last_autopilot_at') or '—'
 
     # 7-day rollup
-    cutoff = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
+    cutoff = (datetime.now(UTC) - timedelta(days=7)).isoformat()
     recent = [e for e in history if e.get('at', '') >= cutoff]
     sum_unread = sum(e.get('unread_delta', 0) for e in recent)
     sum_routed = sum(e.get('routed', 0) for e in recent)
@@ -459,10 +458,7 @@ def cmd_find_subscriptions(args):
             full_msg = gmail.get_message(msg['id'], format='metadata')
             if full_msg:
                 sender = gmail.get_header(full_msg, 'From')
-                if '<' in sender:
-                    email = sender.split('<')[1].rstrip('>')
-                else:
-                    email = sender
+                email = sender.split('<')[1].rstrip('>') if '<' in sender else sender
                 sender_counts[email].append(msg['id'])
             advance(p)
 
@@ -476,11 +472,11 @@ def cmd_find_subscriptions(args):
         start=1
     ):
         if len(msg_ids) >= args.min_count:
-            action = f"→ Can unsubscribe"
+            action = "→ Can unsubscribe"
             print(f"{rank:<6} {len(msg_ids):<8} {sender:<50} {action:<20}")
 
     print("=" * 90)
-    print(f"\n💡 Tip: Use 'gmail-cli archive --sender <email>' to clean up after unsubscribing")
+    print("\n💡 Tip: Use 'gmail-cli archive --sender <email>' to clean up after unsubscribing")
 
 
 def _extract_email(from_header: str) -> str:
@@ -506,7 +502,7 @@ def _parse_size(s: str) -> int:
         raise ValueError(f"Could not parse size {s!r}") from e
 
 
-def _parse_list_unsubscribe(header_value: str) -> List[Tuple[str, str]]:
+def _parse_list_unsubscribe(header_value: str) -> list[tuple[str, str]]:
     """Parse a List-Unsubscribe header into [(method, target), ...].
 
     Methods: 'https' (POST or GET URL) or 'mailto'.
@@ -523,9 +519,9 @@ def _parse_list_unsubscribe(header_value: str) -> List[Tuple[str, str]]:
 
 def _execute_unsubscribe(
     gmail: 'GmailCLI',
-    targets: List[Tuple[str, str]],
+    targets: list[tuple[str, str]],
     one_click: bool,
-) -> Tuple[bool, str]:
+) -> tuple[bool, str]:
     """Try each target in priority order. Returns (success, method_used)."""
     # Priority 1: One-click POST (RFC 8058) — most reliable.
     if one_click:
@@ -590,8 +586,8 @@ def cmd_unsubscribe(args):
 
     # Group by sender. Track one representative message per sender (most recent first
     # is what list() returns).
-    sender_msgs: Dict[str, List[str]] = defaultdict(list)
-    sender_first_msg: Dict[str, str] = {}
+    sender_msgs: dict[str, list[str]] = defaultdict(list)
+    sender_first_msg: dict[str, str] = {}
 
     with progress_for("Analyzing inbox", total=len(messages)) as p:
         for msg in messages:
@@ -676,7 +672,7 @@ def cmd_unsubscribe(args):
     # Execute.
     results = {'unsubscribed': 0, 'failed': 0, 'archive_only': 0, 'archived': 0}
     newly_unsubbed = []
-    for idx, (sender, count, lu, lup, in_kl) in enumerate(targets_to_process, 1):
+    for idx, (sender, count, lu, lup, _in_kl) in enumerate(targets_to_process, 1):
         print(f"[{idx}/{len(targets_to_process)}] {sender} ({count} msgs)...", end=' ')
         unsub_ok = False
         method_used = 'none'
@@ -742,7 +738,7 @@ def _humans_exclusion() -> str:
     return '-from:(' + ' OR '.join(HUMANS_WHITELIST) + ')'
 
 
-def _find_label_id(gmail: 'GmailCLI', name: str) -> Optional[str]:
+def _find_label_id(gmail: 'GmailCLI', name: str) -> str | None:
     """Find an existing label by exact name. Returns None if not found."""
     for L in gmail.get_labels():
         if L.get('name') == name:
@@ -750,7 +746,7 @@ def _find_label_id(gmail: 'GmailCLI', name: str) -> Optional[str]:
     return None
 
 
-def _build_filter_preset(gmail: 'GmailCLI') -> List[Dict[str, Any]]:
+def _build_filter_preset(gmail: 'GmailCLI') -> list[dict[str, Any]]:
     """Build the new filter set (in addition to upgrading existing filters).
 
     Uses the user's existing label taxonomy where possible. Returns Gmail API
@@ -803,7 +799,7 @@ _TRASH_LABEL_IDS = {'TRASH', 'SPAM'}
 def _upgrade_existing_filters(
     gmail: 'GmailCLI',
     dry_run: bool = False,
-) -> Tuple[int, int]:
+) -> tuple[int, int]:
     """Add INBOX and UNREAD removal to label-and-archive filters.
 
     Skips:
@@ -867,7 +863,7 @@ def _upgrade_existing_filters(
     return upgraded, skipped
 
 
-def _list_filters(gmail: 'GmailCLI') -> List[Dict[str, Any]]:
+def _list_filters(gmail: 'GmailCLI') -> list[dict[str, Any]]:
     """List all existing Gmail filters."""
     try:
         resp = gmail.service.users().settings().filters().list(userId='me').execute()
@@ -920,10 +916,14 @@ def cmd_filters(args):
             crit = f.get('criteria', {})
             act = f.get('action', {})
             print(f"  id={f['id']}")
-            if crit.get('from'): print(f"    from:  {crit['from'][:90]}")
-            if crit.get('query'): print(f"    query: {crit['query'][:90]}")
-            if act.get('addLabelIds'): print(f"    +labels: {act['addLabelIds']}")
-            if act.get('removeLabelIds'): print(f"    -labels: {act['removeLabelIds']}")
+            if crit.get('from'):
+                print(f"    from:  {crit['from'][:90]}")
+            if crit.get('query'):
+                print(f"    query: {crit['query'][:90]}")
+            if act.get('addLabelIds'):
+                print(f"    +labels: {act['addLabelIds']}")
+            if act.get('removeLabelIds'):
+                print(f"    -labels: {act['removeLabelIds']}")
             print()
         return
 
@@ -931,10 +931,9 @@ def cmd_filters(args):
         if args.id == 'all':
             existing = _list_filters(gmail)
             print(f"⚠️  About to delete {len(existing)} filter(s).")
-            if not args.yes:
-                if input("Type 'DELETE' to confirm: ") != 'DELETE':
-                    print("Cancelled.")
-                    return
+            if not args.yes and input("Type 'DELETE' to confirm: ") != 'DELETE':
+                print("Cancelled.")
+                return
             for f in existing:
                 gmail.service.users().settings().filters().delete(
                     userId='me', id=f['id']
@@ -1000,7 +999,7 @@ def cmd_filters(args):
             print(f"[{i}/{len(preset)}] {f['name']}: ❌ failed — {e}")
             failed += 1
 
-    print(f"\n📊 Summary:")
+    print("\n📊 Summary:")
     print(f"   Existing upgraded:  {upgraded}")
     print(f"   New created:        {created}")
     print(f"   Skipped (dup):      {skipped_preset}")
@@ -1009,7 +1008,7 @@ def cmd_filters(args):
 
 def cmd_config(args):
     """Show loaded config or initialize a starter file."""
-    from gmail_cleanup.config import load_config, init_config, find_config_file
+    from gmail_cleanup.config import find_config_file, init_config, load_config
 
     if args.subaction == 'init':
         try:
@@ -1026,7 +1025,7 @@ def cmd_config(args):
     if path:
         print(f"📋 Config: {path}")
     else:
-        print(f"📋 Config: (none — using built-in defaults)")
+        print("📋 Config: (none — using built-in defaults)")
     print()
     print(yaml.safe_dump(cfg, sort_keys=False, default_flow_style=False))
 
@@ -1040,15 +1039,15 @@ def cmd_setup(args):
 
 def cmd_accounts(args):
     """Manage configured accounts (list / add / remove)."""
-    from gmail_cleanup.accounts import list_accounts, add_account, remove_account
+    from gmail_cleanup.accounts import add_account, list_accounts, remove_account
     from gmail_cleanup.config import find_config_file
 
     if args.subaction == 'list':
         accounts = list_accounts()
         if not accounts:
             path = find_config_file()
-            print(f"No accounts configured. Add one with:")
-            print(f"   gmail-cleanup accounts add EMAIL [--label LABEL]")
+            print("No accounts configured. Add one with:")
+            print("   gmail-cleanup accounts add EMAIL [--label LABEL]")
             if path:
                 print(f"Config: {path}")
             return
@@ -1130,7 +1129,7 @@ def cmd_verify(args):
         else:
             failed += 1
 
-    print(f"\n📊 Escalation summary:")
+    print("\n📊 Escalation summary:")
     print(f"   Block filters created: {blocked}")
     print(f"   Failed:                {failed}")
 
@@ -1592,7 +1591,7 @@ Examples:
     filter_subs = parser_filters.add_subparsers(dest='subaction')
     fs_apply = filter_subs.add_parser('apply', help='Apply the standard auto-archive preset')
     fs_apply.add_argument('--dry-run', action='store_true', help='Preview without creating')
-    fs_list = filter_subs.add_parser('list', help='List existing filters')
+    filter_subs.add_parser('list', help='List existing filters')
     fs_del = filter_subs.add_parser('delete', help='Delete a filter')
     fs_del.add_argument('--id', required=True, help='Filter ID, or "all" to delete every filter')
     fs_del.add_argument('--yes', action='store_true', help='Skip confirmation when --id=all')
@@ -1622,7 +1621,7 @@ Examples:
         help='Show or initialize the gmail-cleanup config file',
     )
     config_subs = parser_config.add_subparsers(dest='subaction')
-    cs_show = config_subs.add_parser('show', help='Print resolved config')
+    config_subs.add_parser('show', help='Print resolved config')
     cs_init = config_subs.add_parser('init', help='Write a starter config to ~/.gmail_cli/config.yaml')
     cs_init.add_argument('--force', action='store_true', help='Overwrite existing config')
     parser_config.set_defaults(func=cmd_config, subaction='show', force=False)
@@ -1633,7 +1632,7 @@ Examples:
         help='List, add, or remove configured Gmail accounts',
     )
     accounts_subs = parser_accounts.add_subparsers(dest='subaction')
-    as_list = accounts_subs.add_parser('list', help='Show configured accounts')
+    accounts_subs.add_parser('list', help='Show configured accounts')
     as_add = accounts_subs.add_parser('add', help='Add or replace an account')
     as_add.add_argument('email_arg', metavar='EMAIL', help='Email address')
     as_add.add_argument('--label', help='Optional label (e.g. personal, work)')
@@ -1721,8 +1720,8 @@ Examples:
     sched_inst.add_argument('--escalate', action='store_true',
                             help='Pass --escalate to autopilot (auto-block stuck senders)')
     sched_inst.add_argument('--force', action='store_true', help='Overwrite existing job')
-    sched_unin = sched_subs.add_parser('uninstall', help='Remove launchd job')
-    sched_stat = sched_subs.add_parser('status', help='Show schedule status')
+    sched_subs.add_parser('uninstall', help='Remove launchd job')
+    sched_subs.add_parser('status', help='Show schedule status')
     parser_schedule.set_defaults(func=cmd_schedule, subaction='status')
 
     args = parser.parse_args()
@@ -1782,7 +1781,7 @@ Examples:
             except Exception as e:
                 print(f"❌ Failed for {email}: {e}")
                 failures.append(email)
-        print(f"\n=== --all-accounts summary ===")
+        print("\n=== --all-accounts summary ===")
         print(f"   Total: {len(accounts)}   Failed: {len(failures)}")
         sys.exit(len(failures))
     else:
