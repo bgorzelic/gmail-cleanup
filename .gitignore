@@ -25,6 +25,8 @@ uv.lock
 # Local notes / state
 HANDOFF.local.md
 *.local.md
+# Sidecar advisory locks for concurrent writes to lists/*.yaml and state files
+*.lock
 
 # Claude Code local settings (keep project settings.json, ignore per-user)
 .claude/settings.local.json
