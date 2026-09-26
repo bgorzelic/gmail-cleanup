@@ -70,7 +70,8 @@ def _load_list(name: str) -> List[str]:
 VETTED_KILL_LIST = _load_list('kill')
 UNSUB_KEEP_LIST = _load_list('keep')
 HUMANS_WHITELIST = _load_list('humans')
-UNSUBBED_SENDERS = _load_list('unsubbed')
+from gmail_cleanup.lists_io import load_unsubbed_senders
+UNSUBBED_SENDERS = load_unsubbed_senders()
 
 # Credentials directory
 CREDS_DIR = Path.home() / '.gmail_cli'
