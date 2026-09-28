@@ -25,6 +25,7 @@ class TestLoadConfig:
         assert cfg['defaults']['unsubscribe']['min_count'] == 2
         assert cfg['defaults']['verify']['days'] == 14
         assert cfg['defaults']['account_timeout'] == 300
+        assert cfg['notify']['webhook_url'] is None
 
     def test_loads_canonical_location(self, isolated_env):
         cfg_path = isolated_env / 'home' / '.gmail_cli' / 'config.yaml'
