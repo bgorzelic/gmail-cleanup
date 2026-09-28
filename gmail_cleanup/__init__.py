@@ -56,15 +56,36 @@ def _load_list(name: str) -> List[str]:
     """Load a YAML list file from lists/. Returns [] if missing.
 
     Raises ValueError if the file exists but isn't a top-level YAML list.
+    User lists from ~/.gmail_cli/lists/<name>.yaml (if present) are merged
+    with repo lists, de-duplicated (repo entries first, user entries second).
     """
-    path = LISTS_DIR / f'{name}.yaml'
-    if not path.exists():
-        return []
-    with open(path) as f:
-        data = yaml.safe_load(f) or []
-    if not isinstance(data, list):
-        raise ValueError(f"{path} must be a top-level YAML list (got {type(data).__name__})")
-    return [str(x).strip() for x in data if x and str(x).strip()]
+    repo_path = LISTS_DIR / f'{name}.yaml'
+    user_path = Path.home() / '.gmail_cli' / 'lists' / f'{name}.yaml'
+
+    repo_list = []
+    if repo_path.exists():
+        with open(repo_path) as f:
+            data = yaml.safe_load(f) or []
+        if not isinstance(data, list):
+            raise ValueError(f"{repo_path} must be a top-level YAML list (got {type(data).__name__})")
+        repo_list = [str(x).strip() for x in data if x and str(x).strip()]
+
+    user_list = []
+    if user_path.exists():
+        with open(user_path) as f:
+            data = yaml.safe_load(f) or []
+        if not isinstance(data, list):
+            raise ValueError(f"{user_path} must be a top-level YAML list (got {type(data).__name__})")
+        user_list = [str(x).strip() for x in data if x and str(x).strip()]
+
+    all_entries = repo_list.copy()
+    seen = set(repo_list)
+    for entry in user_list:
+        if entry not in seen:
+            all_entries.append(entry)
+            seen.add(entry)
+
+    return all_entries
 
 
 VETTED_KILL_LIST = _load_list('kill')
