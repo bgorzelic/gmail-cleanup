@@ -7,7 +7,7 @@ summarize. History capped at 30 entries.
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -66,7 +66,7 @@ def append_event(email: str, source: str, deltas: dict[str, Any]) -> None:
     # manual command appending to the same account would otherwise lose events.
     with file_lock(path):
         state = _read_state_file(path)
-        now = datetime.now(timezone.utc).isoformat(timespec='seconds')
+        now = datetime.now(UTC).isoformat(timespec='seconds')
         # 'at' and 'source' are the record's own fields and win over deltas.
         event = {**deltas, 'at': now, 'source': source}
         state.setdefault('history', []).append(event)

@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Iterable, Tuple
 
 import yaml
 
@@ -16,7 +16,7 @@ HEADER_AUTO = (
 )
 
 
-def _read_header_and_body(path: Path) -> Tuple[str, list[str]]:
+def _read_header_and_body(path: Path) -> tuple[str, list[str]]:
     """Read YAML list file and separate header comments from content.
 
     Returns (header_text, list_of_entries).

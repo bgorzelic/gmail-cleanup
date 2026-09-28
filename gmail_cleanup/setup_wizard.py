@@ -10,7 +10,6 @@ import shutil
 import time
 import webbrowser
 from pathlib import Path
-from typing import Optional
 
 CREDS_DEST = Path.home() / '.gmail_cli' / 'credentials.json'
 DOWNLOADS = Path.home() / 'Downloads'
@@ -30,7 +29,7 @@ def _open_browser(url: str) -> None:
     webbrowser.open(url)
 
 
-def _find_recent_download(window_secs: int = 300) -> Optional[Path]:
+def _find_recent_download(window_secs: int = 300) -> Path | None:
     if not DOWNLOADS.exists():
         return None
     now = time.time()
@@ -159,6 +158,6 @@ def run_wizard() -> None:
         path.write_text(
             yaml.safe_dump(data, sort_keys=False, default_flow_style=False)
         )
-        print(f"  ✅ Config updated.")
+        print("  ✅ Config updated.")
 
-    print(f"\n🎉 Setup complete! Try: gmail-cleanup stats")
+    print("\n🎉 Setup complete! Try: gmail-cleanup stats")
