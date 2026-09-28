@@ -88,7 +88,8 @@ def _load_list(name: str) -> list[str]:
 VETTED_KILL_LIST = _load_list('kill')
 UNSUB_KEEP_LIST = _load_list('keep')
 HUMANS_WHITELIST = _load_list('humans')
-UNSUBBED_SENDERS = _load_list('unsubbed')
+from gmail_cleanup.lists_io import load_unsubbed_senders  # noqa: E402, I001 (lists_io imports this module)
+UNSUBBED_SENDERS = load_unsubbed_senders()
 
 # Credentials directory
 CREDS_DIR = Path.home() / '.gmail_cli'
@@ -1223,8 +1224,13 @@ def cmd_autopilot(args):
     from gmail_cleanup.config import load_config
     from gmail_cleanup.notify import notify_if_configured
 
+    try:
+        cfg = load_config()
+    except Exception as exc:  # a bad config must not fail a finished autopilot run
+        print(f"⚠️  Skipping webhook notification: config unreadable ({exc})")
+        cfg = {}
     notify_if_configured(
-        load_config(),
+        cfg,
         args.email,
         dry_run=args.dry_run,
         escalate=args.escalate,

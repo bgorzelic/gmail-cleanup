@@ -56,7 +56,7 @@ def progress_for(description: str, total: int) -> Iterator[tuple[Progress, TaskI
         yield progress, task_id
 
 
-def advance(handle: Optional[Tuple[Progress, TaskID]], by: int = 1) -> None:
+def advance(handle: tuple[Progress, TaskID] | None, by: int = 1) -> None:
     if handle is None:
         return
     progress, task_id = handle

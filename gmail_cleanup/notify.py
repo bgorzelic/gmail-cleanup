@@ -13,6 +13,7 @@ import urllib.error
 import urllib.request
 from datetime import UTC, datetime
 from typing import Any
+from urllib.parse import urlsplit
 
 log = logging.getLogger(__name__)
 
@@ -46,11 +47,13 @@ def send_autopilot_notification(
         headers={'Content-Type': 'application/json'},
         method='POST',
     )
+    # Log the host only: webhook URLs often carry their secret in the path.
+    host = urlsplit(webhook_url).netloc or '<invalid url>'
     try:
         with urllib.request.urlopen(req, timeout=_NOTIFY_TIMEOUT) as resp:
-            log.info('Webhook notified (%s %s)', resp.status, webhook_url)
-    except Exception:
-        log.exception('Webhook notification failed for %s', webhook_url)
+            log.info('Webhook notified (%s %s)', resp.status, host)
+    except Exception as exc:
+        log.warning('Webhook notification to %s failed: %s', host, type(exc).__name__)
 
 
 def notify_if_configured(

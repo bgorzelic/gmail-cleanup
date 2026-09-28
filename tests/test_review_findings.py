@@ -15,7 +15,7 @@ import yaml
 
 import gmail_cleanup as gmail_cli
 from gmail_cleanup import state
-from gmail_cleanup.lists_io import append_to_unsubbed
+from gmail_cleanup.lists_io import _normalize_unsubbed_entry, append_to_unsubbed
 from gmail_cleanup.state import append_event, read_state
 
 
@@ -52,6 +52,11 @@ def failing_replace():
 
     with patch.object(Path, 'replace', boom):
         yield
+
+
+def _senders(text):
+    """Sender strings from a written unsubbed.yaml, old or mapping format."""
+    return [_normalize_unsubbed_entry(e) for e in yaml.safe_load(text)]
 
 
 def _tmp_files(directory):
@@ -92,7 +97,7 @@ def test_append_to_unsubbed_does_not_swallow_entry_when_header_has_no_newline(is
     path.write_text('# Auto-managed by gmail-cleanup. Manual edits preserved.')
 
     assert append_to_unsubbed(['victim@example.com']) == ['victim@example.com']
-    assert yaml.safe_load(path.read_text()) == ['victim@example.com']
+    assert _senders(path.read_text()) == ['victim@example.com']
 
 
 def test_appended_entry_survives_a_later_append(isolated_lists):
@@ -102,7 +107,7 @@ def test_appended_entry_survives_a_later_append(isolated_lists):
     append_to_unsubbed(['first@example.com'])
     append_to_unsubbed(['second@example.com'])
 
-    assert yaml.safe_load(path.read_text()) == ['first@example.com', 'second@example.com']
+    assert _senders(path.read_text()) == ['first@example.com', 'second@example.com']
 
 
 def test_append_to_unsubbed_keeps_entry_when_file_is_all_comments(isolated_lists):
@@ -111,7 +116,7 @@ def test_append_to_unsubbed_keeps_entry_when_file_is_all_comments(isolated_lists
 
     append_to_unsubbed(['kept@example.com'])
 
-    assert yaml.safe_load(path.read_text()) == ['kept@example.com']
+    assert _senders(path.read_text()) == ['kept@example.com']
 
 
 # --------------------------------------------------------------- finding 2
@@ -139,7 +144,7 @@ def test_concurrent_append_to_unsubbed_records_every_sender(isolated_lists):
     _run_concurrently([lambda i: append_to_unsubbed([senders[i]]) for i in range(8)])
 
     # Order depends on which worker takes the lock, so compare as a set.
-    assert set(yaml.safe_load(path.read_text())) == set(senders)
+    assert set(_senders(path.read_text())) == set(senders)
 
 
 # --------------------------------------------------------------- finding 3
@@ -165,7 +170,7 @@ def test_failed_write_leaves_no_stray_temp_file(isolated_home, isolated_lists, t
 
     assert _tmp_files(path.parent) == []
     if target == 'lists':
-        assert yaml.safe_load(path.read_text()) == ['old@example.com']
+        assert _senders(path.read_text()) == ['old@example.com']
     else:
         assert not path.exists()
 
@@ -182,7 +187,7 @@ def test_failed_write_does_not_strand_the_new_version(isolated_lists):
     assert _tmp_files(isolated_lists) == []
     assert 'new@example.com' not in path.read_text()
     append_to_unsubbed(['later@example.com'])
-    assert yaml.safe_load(path.read_text()) == ['old@example.com', 'later@example.com']
+    assert _senders(path.read_text()) == ['old@example.com', 'later@example.com']
 
 
 # --------------------------------------------------------------- finding 4
@@ -267,7 +272,7 @@ def test_written_list_is_still_a_top_level_list_with_header(isolated_lists):
 
     text = path.read_text()
     assert text.startswith('# header comment\n')
-    assert yaml.safe_load(text) == ['foo@example.com', 'bar@example.com']
+    assert _senders(text) == ['foo@example.com', 'bar@example.com']
 
 
 def test_history_cap_still_applies_under_lock(isolated_home):
