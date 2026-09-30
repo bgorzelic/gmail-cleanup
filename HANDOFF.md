@@ -20,12 +20,14 @@ Install: `pipx install gmail-inbox-cleanup` (the command is `gmail-cleanup`). Se
 
 ## Last session (2026-09-30)
 
-Shipped v0.6.0 and cleaned the inbox with it.
+Shipped v0.6.0 and v0.6.1 and cleaned the inbox with them.
 
 **Release**
 - First PyPI release, renamed to `gmail-inbox-cleanup` (`gmail-cleanup` on PyPI is an unrelated abandoned package).
 - PR #3 merged to `main`; tag `v0.6.0`; GitHub Release triggers `.github/workflows/publish.yml` (PyPI trusted publishing, environment `pypi`). Verified by installing from PyPI into a clean venv.
 - Also pushed 20 September commits that had only existed locally.
+- **v0.6.1** (same day): an exhausted Gmail quota (`dailyLimitExceeded` / `quotaExceeded`) now stops the run with exit code 2 instead of being retried.
+- After-action report: [`docs/AAR-2026-09-30.md`](docs/AAR-2026-09-30.md).
 
 **Code (all in CHANGELOG 0.6.0)**
 - Lists split: packaged seeds in `gmail_cleanup/lists/` (only `keep.yaml` populated) merged with `~/.gmail_cli/lists/`. The tool never writes into the installed package.
@@ -46,6 +48,10 @@ Shipped v0.6.0 and cleaned the inbox with it.
 - Deleted the broken `has:list` filter (backup in `~/.gmail_cli/backups/`). Nothing was deleted from mail — archive only.
 - Added 9 personal keep entries (`~/.gmail_cli/lists/keep.yaml`) for account, finance and health senders the seed list missed.
 
+**Sister project — Inbox Detox** (`~/dev/projects/inbox-detox`, private)
+- It had the same outdated quota numbers. Fix is open as inbox-detox PR #2 (not merged, not deployed), with a cross-project analysis in its `docs/GMAIL_CLEANUP_SYNERGY.md`.
+- Shared direction: one Gmail engine instead of two; incremental sync via `history.list` for both.
+
 ## Key insights
 
 - **The May "19 of 20 unsubscribes failed" finding was probably inflated.** `verify` then counted mail sent *before* the unsubscribe. Some of those 19 block filters may be for senders that did stop.
@@ -56,14 +62,24 @@ Shipped v0.6.0 and cleaned the inbox with it.
 
 1. **Run `gmail-cleanup verify` on or after 2026-10-02** — 231 senders leave the grace period. Review the stuck list, then `verify --escalate` if it looks right. Currently stuck: LinkedIn (messages-noreply, notifications-noreply), Fox Nation, Wingstop, Mobbin, make.co, IMDb.
 2. **Schedule daily autopilot** — `gmail-cleanup schedule install --escalate` is now safe (grace period), but do step 1 by hand once first.
-3. **v0.7: incremental sync** via `history.list` so daily runs fetch only new mail (see ROADMAP "v0.7 candidates" for the full list: timestamp legacy entries on re-unsubscribe, chunk the big `from:` filter, a `scrub` command, make `stats` match `status`, seed keep-list additions).
-4. **README comparison table** — add `Gururagavendra/gmail-cleaner`, `justlinuxnoob/hush`, `elie222/inbox-zero` (AGPL — ideas only).
+3. **Decide on inbox-detox PR #2** — correct quota costs make its whole-inbox scan too slow for one serverless request; pick a scan design before deploying.
+4. **v0.7: incremental sync** via `history.list` so daily runs fetch only new mail (see ROADMAP "v0.7 candidates" for the full list: timestamp legacy entries on re-unsubscribe, chunk the big `from:` filter, a `scrub` command, make `stats` match `status`, seed keep-list additions).
+5. **README comparison table** — add `Gururagavendra/gmail-cleaner`, `justlinuxnoob/hush`, `elie222/inbox-zero` (AGPL — ideas only).
 
 ## Open questions
 
 - `noreply@skool.com` and `invitations@linkedin.com` are on the personal kill list; still the right call?
 - The personal `humans` / `unsubbed` lists remain in the public git history (pre-0.6 commits). Rewrite history, or accept?
 - 11 stale agent worktrees under `.worktrees/` — remove?
+
+## Key files
+
+- `gmail_cleanup/__init__.py` — CLI, `GmailCLI`, all commands; quota constants and `get_messages_metadata` (batched fetch) near the top
+- `gmail_cleanup/lists_io.py` — seed + user `unsubbed.yaml` read/append
+- `gmail_cleanup/lists/` — packaged seeds (only `keep.yaml` populated)
+- `tests/test_safety.py`, `tests/test_verify_window.py`, `tests/test_api_usage.py` — the safety, verify and quota guarantees
+- `ARCHITECTURE.md` — six safety invariants and the Gmail API quota rules
+- `.github/workflows/publish.yml` — PyPI release on GitHub Release
 
 ## Blockers
 
