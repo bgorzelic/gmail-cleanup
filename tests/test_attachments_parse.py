@@ -1,6 +1,7 @@
 """Tests for attachment size parsing."""
 
 import pytest
+
 from gmail_cleanup import _parse_size
 
 

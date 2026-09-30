@@ -1,4 +1,4 @@
-"""Mutation helpers for lists/*.yaml files."""
+"""Read/write helpers for the YAML lists (packaged seed + ~/.gmail_cli/lists)."""
 
 from __future__ import annotations
 
@@ -68,14 +68,23 @@ def _load_unsubbed_senders(path: Path) -> list[str]:
     return senders
 
 
-def append_to_unsubbed(senders: Iterable[str]) -> list[str]:
-    """Append senders to lists/unsubbed.yaml. Returns newly-added entries (idempotent).
+def _seed_path() -> Path:
+    return gmail_cleanup.LISTS_DIR / 'unsubbed.yaml'
 
-    Atomically writes the file using a temp file + rename pattern.
-    Deduplicates against existing entries before writing.
+
+def _user_path() -> Path:
+    return gmail_cleanup.user_lists_dir() / 'unsubbed.yaml'
+
+
+def append_to_unsubbed(senders: Iterable[str]) -> list[str]:
+    """Append senders to ~/.gmail_cli/lists/unsubbed.yaml. Returns newly-added entries.
+
+    Idempotent: deduplicates against the user file and the packaged seed.
+    Atomically writes the file using a temp file + rename pattern — the packaged
+    seed is never written, so installs into site-packages stay read-only.
     New entries are written in the new mapping format: {sender, unsubscribed_at}.
     """
-    path = gmail_cleanup.LISTS_DIR / 'unsubbed.yaml'
+    path = _user_path()
     # The lock spans the read as well as the write, so two runs appending at
     # once cannot drop each other's senders.
     with file_lock(path):
@@ -83,6 +92,7 @@ def append_to_unsubbed(senders: Iterable[str]) -> list[str]:
         existing_senders = {
             sender for sender in map(_normalize_unsubbed_entry, existing_entries) if sender
         }
+        existing_senders.update(_load_unsubbed_senders(_seed_path()))
         new_senders = []
         new_entries = []
         now = datetime.now(UTC).isoformat().replace('+00:00', 'Z')
@@ -102,7 +112,39 @@ def append_to_unsubbed(senders: Iterable[str]) -> list[str]:
     return new_senders
 
 
+def _parse_timestamp(value: object) -> datetime | None:
+    """Parse an `unsubscribed_at` value into an aware UTC datetime, or None."""
+    if isinstance(value, datetime):
+        return value if value.tzinfo else value.replace(tzinfo=UTC)
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.strip().replace('Z', '+00:00'))
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
+
+
+def load_unsubbed_entries() -> list[tuple[str, datetime | None]]:
+    """Load (sender, unsubscribed_at) pairs from the seed and user lists, de-duplicated.
+
+    Old-format (bare string) entries have no timestamp and yield None. When a
+    sender appears more than once, the latest known timestamp wins.
+    """
+    merged: dict[str, datetime | None] = {}
+    for path in (_seed_path(), _user_path()):
+        _, body = _read_header_and_body(path)
+        for entry in body:
+            sender = _normalize_unsubbed_entry(entry)
+            if not sender:
+                continue
+            ts = _parse_timestamp(entry.get('unsubscribed_at')) if isinstance(entry, dict) else None
+            prev = merged.get(sender)
+            if sender not in merged or (ts and (prev is None or ts > prev)):
+                merged[sender] = ts
+    return list(merged.items())
+
+
 def load_unsubbed_senders() -> list[str]:
-    """Load sender strings from lists/unsubbed.yaml, accepting both old and new formats."""
-    path = gmail_cleanup.LISTS_DIR / 'unsubbed.yaml'
-    return _load_unsubbed_senders(path)
+    """Load sender strings from the seed and user unsubbed lists (old and new formats)."""
+    return [sender for sender, _ in load_unsubbed_entries()]

@@ -1,5 +1,6 @@
 """Tests for multi-account dispatch pattern."""
 
+import contextlib
 from unittest.mock import MagicMock
 
 import pytest
@@ -40,8 +41,6 @@ def test_loop_continues_after_failure(isolated_env):
         if email == 'a@example.com':
             raise RuntimeError('boom')
     for acc in list_accounts():
-        try:
+        with contextlib.suppress(Exception):
             func(acc['email'])
-        except Exception:
-            pass
     assert calls == ['a@example.com', 'b@example.com']

@@ -1,6 +1,5 @@
 """Tests for the small helper functions that parse Gmail headers and build queries."""
 
-import pytest
 
 import gmail_cleanup as gmail_cli
 
@@ -62,19 +61,3 @@ class TestParseListUnsubscribe:
         # No angle brackets — not a List-Unsubscribe value at all.
         assert gmail_cli._parse_list_unsubscribe('mailto:unsub@example.com') == []
 
-
-class TestHumansExclusion:
-    def test_produces_negated_from_filter(self):
-        result = gmail_cli._humans_exclusion()
-        assert result.startswith('-from:(')
-        assert result.endswith(')')
-
-    def test_includes_every_human(self):
-        result = gmail_cli._humans_exclusion()
-        for human in gmail_cli.HUMANS_WHITELIST:
-            assert human in result
-
-    def test_uses_or_between_humans(self):
-        # Real humans list is large; just check at least one OR appears when there's >1 entry.
-        if len(gmail_cli.HUMANS_WHITELIST) > 1:
-            assert ' OR ' in gmail_cli._humans_exclusion()

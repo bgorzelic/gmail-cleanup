@@ -15,6 +15,8 @@ def isolated_lists(monkeypatch, tmp_path):
     lists_dir.mkdir()
     (lists_dir / 'unsubbed.yaml').write_text("# header comment\n- foo@example.com\n")
     monkeypatch.setattr(gmail_cli, 'LISTS_DIR', lists_dir)
+    # Seed and user lists share one directory here; test_lists_layout.py covers the split.
+    monkeypatch.setattr(gmail_cli, 'user_lists_dir', lambda: lists_dir)
     return lists_dir
 
 
@@ -99,6 +101,7 @@ def test_load_unsubbed_senders_empty_file(tmp_path, monkeypatch):
     lists_dir.mkdir()
     (lists_dir / 'unsubbed.yaml').write_text("# header only\n")
     monkeypatch.setattr(gmail_cli, 'LISTS_DIR', lists_dir)
+    monkeypatch.setattr(gmail_cli, 'user_lists_dir', lambda: lists_dir)
     assert load_unsubbed_senders() == []
 
 
@@ -108,6 +111,7 @@ def test_load_unsubbed_senders_missing_file(tmp_path, monkeypatch):
     lists_dir.mkdir()
     # No unsubbed.yaml file
     monkeypatch.setattr(gmail_cli, 'LISTS_DIR', lists_dir)
+    monkeypatch.setattr(gmail_cli, 'user_lists_dir', lambda: lists_dir)
     assert load_unsubbed_senders() == []
 
 

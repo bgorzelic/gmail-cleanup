@@ -5,7 +5,16 @@ shielded from auto-unsubscribe. If this regresses, the tool could silently
 unsubscribe a user from their bank's fraud alerts.
 """
 
+import yaml
+
 import gmail_cleanup as gmail_cli
+
+# The packaged seed — what every fresh install gets. Loaded directly so the
+# result never depends on the developer's own ~/.gmail_cli/lists/keep.yaml.
+SEED_KEEP_LIST = [
+    str(x).strip()
+    for x in yaml.safe_load((gmail_cli.LISTS_DIR / 'keep.yaml').read_text())
+]
 
 
 def _is_protected(sender: str) -> bool:
@@ -14,7 +23,7 @@ def _is_protected(sender: str) -> bool:
     Kept in sync with the substring-match in gmail_cli.cmd_unsubscribe at the
     `keep_hit = next(...)` line. If that logic changes, this helper must update.
     """
-    return any(k in sender for k in gmail_cli.UNSUB_KEEP_LIST)
+    return any(k in sender for k in SEED_KEEP_LIST)
 
 
 class TestKeepListShieldsCriticalSenders:
@@ -76,17 +85,56 @@ class TestKeepListDoesNotOverShield:
         assert not _is_protected('mollysoshea@substack.com')
 
 
-class TestUnsubbedSendersAllProtectedFromResurrection:
-    """Every sender in unsubbed.yaml should be route-able via the filter preset.
+class TestPackagedSeedsShipNoPersonalData:
+    """The wheel ships gmail_cleanup/lists/. Only keep.yaml may carry entries.
 
-    The preset filter `from: <unsubbed senders OR'd>` matches against the
-    sender header. We just need to verify the list isn't empty and entries
-    look like email addresses.
+    humans/kill/unsubbed are personal; they belong in ~/.gmail_cli/lists/.
     """
 
-    def test_list_is_nonempty(self):
-        assert len(gmail_cli.UNSUBBED_SENDERS) > 0
+    def test_keep_seed_is_nonempty(self):
+        assert len(SEED_KEEP_LIST) > 0
 
-    def test_entries_look_like_emails(self):
-        for entry in gmail_cli.UNSUBBED_SENDERS:
-            assert '@' in entry, f"unsubbed entry doesn't look like an email: {entry!r}"
+    def test_personal_seeds_are_empty(self):
+        for name in ('humans', 'kill', 'unsubbed'):
+            data = yaml.safe_load((gmail_cli.LISTS_DIR / f'{name}.yaml').read_text())
+            assert data in (None, []), f'{name}.yaml seed must ship empty'
+
+
+class TestHumansNeverUnsubscribed:
+    """humans.yaml always wins: a real person is never unsubscribed or archived,
+    even with a List-Unsubscribe header and even when kill.yaml also matches."""
+
+    def _run(self, monkeypatch, capsys):
+        from argparse import Namespace
+        from unittest.mock import MagicMock
+
+        def msg(sender):
+            return {'payload': {'headers': [
+                {'name': 'From', 'value': f'Someone <{sender}>'},
+                {'name': 'List-Unsubscribe', 'value': '<https://example.com/u>'},
+                {'name': 'List-Unsubscribe-Post', 'value': 'List-Unsubscribe=One-Click'},
+            ]}}
+
+        senders = ['Friend@Example.org'] * 3 + ['promo@shop.example'] * 3
+        ids = [str(i) for i in range(len(senders))]
+        gmail = MagicMock()
+        gmail.search_messages.return_value = [{'id': i} for i in ids]
+        gmail.get_messages_metadata.return_value = {
+            i: msg(s.lower()) for i, s in zip(ids, senders, strict=True)
+        }
+        gmail.get_header.side_effect = gmail_cli.GmailCLI.get_header.__get__(gmail)
+        monkeypatch.setattr(gmail_cli, 'GmailCLI', lambda email: gmail)
+        monkeypatch.setattr(gmail_cli, 'HUMANS_WHITELIST', ['friend@example.org'])
+        monkeypatch.setattr(gmail_cli, 'VETTED_KILL_LIST', ['example.org'])
+        monkeypatch.setattr(gmail_cli, 'UNSUB_KEEP_LIST', [])
+        gmail_cli.cmd_unsubscribe(Namespace(
+            email='me@example.com', days=30, min_count=2, limit=100,
+            dry_run=True, no_archive=False, delete=False,
+        ))
+        return capsys.readouterr().out
+
+    def test_human_is_not_targeted(self, monkeypatch, capsys):
+        out = self._run(monkeypatch, capsys)
+        assert 'friend@example.org' not in out.split('Protected by KEEP')[-1].lower()
+        assert 'promo@shop.example' in out
+        assert 'Total: 1 senders' in out

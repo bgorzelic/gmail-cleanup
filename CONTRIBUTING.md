@@ -10,7 +10,7 @@ Thanks for taking the time to look at this. This is a small, focused tool — co
 4. **Look at [`HANDOFF.md`](HANDOFF.md)** for current open work.
 5. **Pick a [Good First Issue](https://github.com/bgorzelic/gmail-cleanup/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22)** — or open a discussion before larger changes.
 
-**Cardinal rule:** Read the four safety invariants in `ARCHITECTURE.md` before touching anything in `cmd_unsubscribe`, the `lists/*.yaml` files, or `test_safety.py`. The tool's job is to *never* unsubscribe from a bank.
+**Cardinal rule:** Read the four safety invariants in `ARCHITECTURE.md` before touching anything in `cmd_unsubscribe`, the `gmail_cleanup/lists/*.yaml` seeds, or `test_safety.py`. The tool's job is to *never* unsubscribe from a bank.
 
 ## Project values
 
@@ -62,14 +62,14 @@ Conventional commits, present tense, imperative mood:
 
 ## Adding entries to the shipped lists
 
-The YAML files in `lists/` ship with the project. If you're proposing additions:
+The YAML seeds in `gmail_cleanup/lists/` ship inside the package. Only `keep.yaml` carries entries — `tests/test_safety.py` fails if personal lists (humans, kill, unsubbed) ship non-empty. If you're proposing additions:
 
-- **`kill.yaml`** — only domains/senders confirmed to be pure noise (newsletters, marketing, job spam). If there's any chance someone might want the sender's mail, it doesn't belong here.
+- **`kill.yaml`** — the seed stays empty: what counts as noise is personal. Users add their own.
 - **`keep.yaml`** — only categorically critical senders (banks, healthcare, .gov, security/account-protection). Err generous; false positives are intentional.
-- **`humans.yaml`** — personal whitelists shouldn't ship in the project default. Leave it empty in the repo's default; users add their own.
-- **`unsubbed.yaml`** — user-state, not project-state. Should ship empty in the default.
+- **`humans.yaml`** — personal whitelists never ship. The seed stays empty; users add their own.
+- **`unsubbed.yaml`** — user state, not project state. The seed stays empty.
 
-(The current repo defaults reflect the maintainer's own inbox during initial development. Before v1.0 we'll factor these into a project default + user override.)
+Users' own entries live in `~/.gmail_cli/lists/` and are merged with these seeds at load time.
 
 ## Pull requests
 

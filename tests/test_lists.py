@@ -115,11 +115,10 @@ class TestLoadList:
 
 
 class TestShippedListFiles:
-    """Smoke tests on the actual lists/*.yaml files in the repo."""
+    """Smoke tests on the packaged seed lists (HOME is sandboxed, so no user lists merge in)."""
 
-    def test_kill_list_is_nonempty_and_well_formed(self):
-        assert len(gmail_cli.VETTED_KILL_LIST) > 0
-        for entry in gmail_cli.VETTED_KILL_LIST:
+    def test_kill_list_is_well_formed(self):
+        for entry in gmail_cli._load_list('kill'):
             assert isinstance(entry, str)
             assert entry == entry.strip()
             assert entry  # no empty strings
@@ -141,21 +140,20 @@ class TestShippedListFiles:
             'irs.gov',       # IRS
             'accounts.google.com',  # security
         ]
-        keep_text = ' '.join(gmail_cli.UNSUB_KEEP_LIST).lower()
+        keep_text = ' '.join(gmail_cli._load_list('keep')).lower()
         for s in required_substrings:
             assert s in keep_text, f"keep list is missing critical substring: {s!r}"
 
-    def test_humans_whitelist_has_real_emails(self):
-        """Humans list should contain things that look like email addresses."""
-        assert len(gmail_cli.HUMANS_WHITELIST) > 0
-        for entry in gmail_cli.HUMANS_WHITELIST:
+    def test_humans_whitelist_entries_look_like_emails(self):
+        """Humans list entries (if any) should look like email addresses."""
+        for entry in gmail_cli._load_list('humans'):
             assert '@' in entry, f"humans entry doesn't look like an email: {entry!r}"
 
     def test_no_duplicate_entries_within_each_list(self):
         for name, lst in [
-            ('kill', gmail_cli.VETTED_KILL_LIST),
-            ('keep', gmail_cli.UNSUB_KEEP_LIST),
-            ('humans', gmail_cli.HUMANS_WHITELIST),
+            ('kill', gmail_cli._load_list('kill')),
+            ('keep', gmail_cli._load_list('keep')),
+            ('humans', gmail_cli._load_list('humans')),
             ('unsubbed', gmail_cli.UNSUBBED_SENDERS),
         ]:
             assert len(lst) == len(set(lst)), f"{name}.yaml contains duplicates"
@@ -168,7 +166,7 @@ class TestShippedListFiles:
         # Create a temporary repo lists directory
         repo_dir = tmp_path / 'repo_lists'
         repo_dir.mkdir()
-        
+
         # Write repo file
         (repo_dir / 'humans.yaml').write_text('- repo@example.com\n- repo2@example.com\n')
 
@@ -186,7 +184,7 @@ class TestShippedListFiles:
 
         # Test the load function directly
         result = gmail_cli._load_list('humans')
-        
+
         # Should have all entries: repo entries first, then user entries (excluding duplicates)
         assert 'repo@example.com' in result
         assert 'repo2@example.com' in result

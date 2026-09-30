@@ -1,0 +1,14 @@
+# Human whitelist — real correspondents.
+#
+# These addresses get protective treatment in the filter preset:
+#   - starred
+#   - marked important
+#   - shielded from spam folder
+#
+# The unsubscribe command never unsubscribes or archives them — even if their
+# mail carries a List-Unsubscribe header (some personal newsletters do) and even
+# if they also match kill.yaml.
+
+#
+# Your entries live in ~/.gmail_cli/lists/humans.yaml — this packaged seed is empty.
+[]

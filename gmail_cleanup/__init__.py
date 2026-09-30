@@ -8,14 +8,20 @@ Uses OAuth credentials to access Gmail API directly.
 
 import argparse
 import base64
+import contextlib
+import io
+import json
 import os
 import pickle
+import random
 import re
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
 from collections import defaultdict
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from email.message import EmailMessage
 from pathlib import Path
@@ -38,6 +44,93 @@ SCOPES = [
     'https://www.googleapis.com/auth/gmail.settings.basic',
 ]
 
+# Retries for idempotent Gmail API calls (list/get/modify). googleapiclient backs
+# off exponentially on 429 rate limits and 5xx errors. Non-idempotent calls
+# (send, create) are deliberately not retried, so a retry can't duplicate them.
+API_RETRIES = 5
+
+# Batched metadata fetches, paced to Gmail's documented per-user quota
+# (developers.google.com/workspace/gmail/api/reference/quota, checked 2026-09-30):
+# 6,000 units/min per user = 100 units/s, and messages.get costs 20 units, so
+# 5 fetches/s. Batching saves round-trips, not quota. Batches are 25, not the
+# documented ceiling of 50: every sub-request counts against per-user
+# concurrency, and a live 3,070-message scan at 50/10 s had 342 throttled
+# (2026-09-30). 25 every 5 s is the same unit rate in smaller bursts.
+QUOTA_UNITS_PER_SEC = 100
+MESSAGES_GET_UNITS = 20
+BATCH_SIZE = 25
+BATCH_INTERVAL = BATCH_SIZE * MESSAGES_GET_UNITS / QUOTA_UNITS_PER_SEC
+# Rate-limited items are re-sent in smaller batches: Gmail counts every
+# sub-request of a batch against the per-user limit.
+RETRY_BATCH_SIZE = 10
+_SERVER_ERROR_STATUS = {500, 502, 503, 504}
+_RATE_LIMIT_REASONS = (b'ratelimitexceeded', b'quotaexceeded')  # also matches userRateLimitExceeded
+MAX_RETRY_AFTER = 300  # seconds; never trust a server-sent wait longer than this
+
+
+def _is_rate_limit(error: Exception) -> bool:
+    """429, or a 403 whose reason is a rate/quota limit (Gmail uses both)."""
+    if not isinstance(error, HttpError):
+        return False
+    status = getattr(error.resp, 'status', None)
+    if status == 429:
+        return True
+    content = (error.content or b'').lower()
+    return status == 403 and any(reason in content for reason in _RATE_LIMIT_REASONS)
+
+
+def _is_retryable(error: Exception) -> bool:
+    """Rate limits and transient server errors are worth retrying; the rest are not."""
+    if _is_rate_limit(error):
+        return True
+    return isinstance(error, HttpError) and getattr(error.resp, 'status', None) in _SERVER_ERROR_STATUS
+
+
+def _retry_delay(error: Exception | None, attempt: int) -> float:
+    """Seconds to wait before retry number `attempt` (0-based).
+
+    A Retry-After header wins. Otherwise rate limits back off 5 s → 80 s and
+    server/transport errors 1 s → 10 s, each with up to 1 s of jitter so
+    concurrent runs don't retry in step.
+    """
+    if isinstance(error, HttpError):
+        try:
+            retry_after = float(error.resp.get('retry-after', ''))
+        except (AttributeError, TypeError, ValueError):
+            retry_after = 0.0
+        if retry_after > 0:
+            return min(retry_after, MAX_RETRY_AFTER)
+    if error is not None and _is_rate_limit(error):
+        base = min(5 * 2 ** attempt, 80)
+    else:
+        base = min(2 ** attempt, 10)
+    return base + random.random()
+
+
+def _rate_limit_path(email: str) -> Path:
+    safe = email.replace('/', '_').replace('\\', '_')
+    return Path.home() / '.gmail_cli' / f'rate_limit_{safe}.json'
+
+
+def record_rate_limit(email: str, wait_seconds: float) -> None:
+    """Remember that Gmail throttled this account, so a later run doesn't pile on."""
+    from gmail_cleanup.atomic_io import atomic_write
+
+    retry_at = datetime.now(UTC) + timedelta(seconds=wait_seconds)
+    path = _rate_limit_path(email)
+    with contextlib.suppress(OSError):  # best-effort bookkeeping; never fail a run over it
+        path.parent.mkdir(parents=True, exist_ok=True)
+        atomic_write(path, json.dumps({'retry_at': retry_at.isoformat()}))
+
+
+def rate_limited_until(email: str) -> datetime | None:
+    """When the account's last recorded throttle expires, if that is still in the future."""
+    try:
+        retry_at = datetime.fromisoformat(json.loads(_rate_limit_path(email).read_text())['retry_at'])
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+    return retry_at if retry_at > datetime.now(UTC) else None
+
 # HTTP request settings for unsubscribe link execution
 UNSUB_HTTP_TIMEOUT = 5  # seconds
 UNSUB_USER_AGENT = 'Mozilla/5.0 (compatible; gmail-cli-unsubscribe/1.0)'
@@ -45,19 +138,25 @@ UNSUB_USER_AGENT = 'Mozilla/5.0 (compatible; gmail-cli-unsubscribe/1.0)'
 # Repository root — used for all Path(__file__) references since module moved deeper
 _REPO_ROOT = Path(__file__).parent.parent
 
-# Configurable lists live in lists/*.yaml. Users edit them without touching code.
-LISTS_DIR = _REPO_ROOT / 'lists'
+# Packaged seed lists ship inside the package (gmail_cleanup/lists/*.yaml).
+# Per-user lists — and everything the tool writes — live in ~/.gmail_cli/lists/.
+LISTS_DIR = Path(__file__).parent / 'lists'
+
+
+def user_lists_dir() -> Path:
+    """Per-user lists directory. Resolved per call so tests can swap HOME."""
+    return Path.home() / '.gmail_cli' / 'lists'
 
 
 def _load_list(name: str) -> list[str]:
-    """Load a YAML list file from lists/. Returns [] if missing.
+    """Load a YAML list by name. Returns [] if missing.
 
     Raises ValueError if the file exists but isn't a top-level YAML list.
     User lists from ~/.gmail_cli/lists/<name>.yaml (if present) are merged
-    with repo lists, de-duplicated (repo entries first, user entries second).
+    with the packaged seed, de-duplicated (seed entries first, user entries second).
     """
     repo_path = LISTS_DIR / f'{name}.yaml'
-    user_path = Path.home() / '.gmail_cli' / 'lists' / f'{name}.yaml'
+    user_path = user_lists_dir() / f'{name}.yaml'
 
     repo_list = []
     if repo_path.exists():
@@ -205,7 +304,7 @@ class GmailCLI:
     def get_labels(self) -> list[dict[str, Any]]:
         """Get all Gmail labels"""
         try:
-            results = self.service.users().labels().list(userId='me').execute()
+            results = self.service.users().labels().list(userId='me').execute(num_retries=API_RETRIES)
             return results.get('labels', [])
         except HttpError as error:
             print(f"❌ Error fetching labels: {error}")
@@ -222,7 +321,7 @@ class GmailCLI:
             )
 
             while request and len(messages) < max_results:
-                response = request.execute()
+                response = request.execute(num_retries=API_RETRIES)
                 messages.extend(response.get('messages', []))
                 request = self.service.users().messages().list_next(request, response)
 
@@ -241,10 +340,87 @@ class GmailCLI:
                 userId='me',
                 id=message_id,
                 format=format
-            ).execute()
+            ).execute(num_retries=API_RETRIES)
         except HttpError as error:
             print(f"❌ Error fetching message {message_id}: {error}")
             return None
+
+    def get_messages_metadata(
+        self,
+        message_ids: list[str],
+        headers: list[str],
+        on_progress: Callable[[], None] | None = None,
+    ) -> dict[str, dict[str, Any]]:
+        """Fetch metadata (only `headers`) for many messages via batched requests.
+
+        Returns {message_id: message}. Sub-requests that hit a rate limit or 5xx are
+        retried with exponential backoff; others are skipped and counted in a warning,
+        never dropped silently. on_progress fires once per message, fetched or not.
+        """
+        results: dict[str, dict[str, Any]] = {}
+        pending = list(message_ids)
+        last_start = 0.0
+        throttled = 0
+        done = 0
+        show_lines = not sys.stdout.isatty()  # the progress bar only draws on a terminal
+        for attempt in range(API_RETRIES + 1):
+            retry: list[str] = []
+            errors: list[Exception] = []
+
+            def callback(request_id, response, exception, _retry=retry, _errors=errors,
+                         _can_retry=attempt < API_RETRIES):
+                if exception is None:
+                    results[request_id] = response
+                elif _can_retry and _is_retryable(exception):
+                    _retry.append(request_id)
+                    _errors.append(exception)
+                    return
+                if on_progress:
+                    on_progress()
+
+            # Retries go out in smaller batches, at the same quota-unit rate.
+            size = BATCH_SIZE if attempt == 0 else RETRY_BATCH_SIZE
+            interval = size * MESSAGES_GET_UNITS / QUOTA_UNITS_PER_SEC
+            for i in range(0, len(pending), size):
+                chunk = pending[i:i + size]
+                wait = interval - (time.monotonic() - last_start)
+                if wait > 0:
+                    time.sleep(wait)
+                last_start = time.monotonic()
+                batch = self.service.new_batch_http_request(callback=callback)
+                for mid in chunk:
+                    batch.add(
+                        self.service.users().messages().get(
+                            userId='me', id=mid, format='metadata', metadataHeaders=headers,
+                        ),
+                        request_id=mid,
+                    )
+                try:
+                    batch.execute()
+                except (HttpError, OSError) as error:
+                    # Whole-batch failure: retry whatever in this chunk wasn't answered.
+                    retry.extend(m for m in chunk if m not in results and m not in retry)
+                    errors.append(error)
+                done += len(chunk)
+                if show_lines and attempt == 0 and (done % 500 < size or done >= len(pending)):
+                    print(f"   … fetched {min(done, len(pending)):,}/{len(pending):,}")
+            pending = retry
+            if not pending:
+                break
+            throttled += len(pending)
+            delay = max(_retry_delay(e, attempt) for e in errors)
+            if any(_is_rate_limit(e) for e in errors):
+                record_rate_limit(self.user_email, delay)
+                print(f"⏱  Gmail rate limit hit — waiting {delay:.0f}s before retrying "
+                      f"{len(pending):,} message(s)")
+            time.sleep(delay)
+
+        if throttled:
+            print(f"⏱  {throttled:,} rate-limited/5xx response(s) retried with backoff")
+        failed = len(message_ids) - len(results)
+        if failed:
+            print(f"⚠️  {failed:,} message(s) could not be fetched and were skipped")
+        return results
 
     def get_header(self, message: dict[str, Any], header_name: str) -> str:
         """Extract header value from message"""
@@ -268,7 +444,7 @@ class GmailCLI:
                 userId='me',
                 id=message_id,
                 body=body
-            ).execute()
+            ).execute(num_retries=API_RETRIES)
         except HttpError as error:
             print(f"❌ Error modifying message {message_id}: {error}")
 
@@ -285,7 +461,7 @@ class GmailCLI:
             self.service.users().messages().batchModify(
                 userId='me',
                 body=body
-            ).execute()
+            ).execute(num_retries=API_RETRIES)
         except HttpError as error:
             print(f"❌ Error batch modifying messages: {error}")
 
@@ -366,8 +542,12 @@ def cmd_status(args):
     console = Console()
 
     # Live counts
-    inbox_n = len(gmail.search_messages('in:inbox', max_results=10000))
-    unread_n = len(gmail.search_messages('is:unread', max_results=10000))
+    # One labels.get call; conversation counts match what Gmail's UI shows.
+    inbox = gmail.service.users().labels().get(
+        userId='me', id='INBOX'
+    ).execute(num_retries=API_RETRIES)
+    inbox_n = f"{inbox.get('threadsTotal', 0):,}"
+    unread_n = f"{inbox.get('threadsUnread', 0):,}"
 
     # Lists
     list_counts = {
@@ -397,7 +577,7 @@ def cmd_status(args):
 
     console.print()
     console.print(f"[bold]gmail-cleanup status[/bold] — {args.email}\n")
-    console.print(f"📥 Inbox: [cyan]{inbox_n}[/cyan]   📬 Unread: [cyan]{unread_n}[/cyan]")
+    console.print(f"📥 Inbox: [cyan]{inbox_n}[/cyan] conversations   📬 Unread in inbox: [cyan]{unread_n}[/cyan]")
     console.print(f"🛡  Filters active: [cyan]{filters_n}[/cyan]")
     console.print(f"📋 Lists: [cyan]{list_counts['kill']}[/cyan] kill · "
                   f"[cyan]{list_counts['keep']}[/cyan] keep · "
@@ -611,16 +791,22 @@ def cmd_unsubscribe(args):
     sender_msgs: dict[str, list[str]] = defaultdict(list)
     sender_first_msg: dict[str, str] = {}
 
+    # One batched pass fetches every header we need, so the per-sender
+    # List-Unsubscribe lookup below needs no second round of API calls.
     with progress_for("Analyzing inbox", total=len(messages)) as p:
-        for msg in messages:
-            full_msg = gmail.get_message(msg['id'], format='metadata')
-            if full_msg:
-                sender = _extract_email(gmail.get_header(full_msg, 'From'))
-                if sender:
-                    sender_msgs[sender].append(msg['id'])
-                    if sender not in sender_first_msg:
-                        sender_first_msg[sender] = msg['id']
-            advance(p)
+        fetched = gmail.get_messages_metadata(
+            [msg['id'] for msg in messages],
+            ['From', 'List-Unsubscribe', 'List-Unsubscribe-Post'],
+            on_progress=lambda: advance(p),
+        )
+    for msg in messages:
+        full_msg = fetched.get(msg['id'])
+        if full_msg:
+            sender = _extract_email(gmail.get_header(full_msg, 'From'))
+            if sender:
+                sender_msgs[sender].append(msg['id'])
+                if sender not in sender_first_msg:
+                    sender_first_msg[sender] = msg['id']
 
     print(f"   Analyzed {len(messages):,} messages, {len(sender_msgs)} unique senders\n")
 
@@ -628,7 +814,11 @@ def cmd_unsubscribe(args):
     # MINUS anything matching the KEEP list (financial / healthcare / etc.).
     targets_to_process = []  # list of (sender, count, list_unsub_header, list_unsub_post_header)
     keep_skipped = []  # senders excluded by the KEEP list, for reporting
+    humans = {h.lower() for h in HUMANS_WHITELIST}
     for sender, msg_ids in sender_msgs.items():
+        # Real people always win, over the kill list too. Exact match (humans.yaml).
+        if sender.lower() in humans:
+            continue
         in_killlist = any(killed in sender for killed in VETTED_KILL_LIST)
         meets_threshold = len(msg_ids) >= args.min_count
         if not (in_killlist or meets_threshold):
@@ -642,8 +832,8 @@ def cmd_unsubscribe(args):
                 keep_skipped.append((sender, len(msg_ids), keep_hit))
                 continue
 
-        # Fetch headers to find List-Unsubscribe.
-        rep = gmail.get_message(sender_first_msg[sender], format='metadata')
+        # List-Unsubscribe headers were fetched in the batched pass above.
+        rep = fetched.get(sender_first_msg[sender])
         if not rep:
             continue
         list_unsub = gmail.get_header(rep, 'List-Unsubscribe')
@@ -734,9 +924,9 @@ def cmd_unsubscribe(args):
         try:
             added = append_to_unsubbed(newly_unsubbed)
             if added:
-                print(f"\n📝 Added {len(added)} sender(s) to lists/unsubbed.yaml")
+                print(f"\n📝 Added {len(added)} sender(s) to ~/.gmail_cli/lists/unsubbed.yaml")
         except (OSError, ValueError) as e:
-            print(f"\n⚠️  Could not update lists/unsubbed.yaml: {e}")
+            print(f"\n⚠️  Could not update ~/.gmail_cli/lists/unsubbed.yaml: {e}")
 
     if results['unsubscribed'] or results['archived']:
         from gmail_cleanup.state import append_event
@@ -755,11 +945,6 @@ def cmd_unsubscribe(args):
     print("=" * 50)
 
 
-def _humans_exclusion() -> str:
-    """Gmail search fragment that excludes the human whitelist."""
-    return '-from:(' + ' OR '.join(HUMANS_WHITELIST) + ')'
-
-
 def _find_label_id(gmail: 'GmailCLI', name: str) -> str | None:
     """Find an existing label by exact name. Returns None if not found."""
     for L in gmail.get_labels():
@@ -772,26 +957,22 @@ def _build_filter_preset(gmail: 'GmailCLI') -> list[dict[str, Any]]:
     """Build the new filter set (in addition to upgrading existing filters).
 
     Uses the user's existing label taxonomy where possible. Returns Gmail API
-    filter dicts: {name, criteria, action}.
+    filter dicts: {name, criteria, action}. A filter whose list is empty is left
+    out — Gmail rejects an empty `from:` criterion.
+
+    There is no newsletter catch-all: Gmail search has no operator for the
+    List-Unsubscribe header (`has:list` matches nothing), so that job belongs to
+    the header-based `unsubscribe` command.
     """
-    label_newsletters = _find_label_id(gmail, '📧 Newsletters') or gmail.create_label('📧 Newsletters')
     label_notifications = _find_label_id(gmail, '💬 Notifications') or gmail.create_label('💬 Notifications')
 
-    return [
+    preset = [
         {
             'name': 'whitelist-humans (star + important + protect from spam)',
             'criteria': {'from': ' OR '.join(HUMANS_WHITELIST)},
             'action': {
                 'addLabelIds': ['STARRED', 'IMPORTANT'],
                 'removeLabelIds': ['SPAM'],
-            },
-        },
-        {
-            'name': 'has:list catch-all → 📧 Newsletters + archive + read',
-            'criteria': {'query': 'has:list ' + _humans_exclusion()},
-            'action': {
-                'addLabelIds': [label_newsletters],
-                'removeLabelIds': ['INBOX', 'UNREAD'],
             },
         },
         {
@@ -811,6 +992,7 @@ def _build_filter_preset(gmail: 'GmailCLI') -> list[dict[str, Any]]:
             },
         },
     ]
+    return [f for f in preset if f['criteria']['from']]
 
 
 # Filter actions that mean "this is a protect/route filter, leave alone"
@@ -885,10 +1067,40 @@ def _upgrade_existing_filters(
     return upgraded, skipped
 
 
+def _from_set(criteria: dict[str, Any]) -> set[str]:
+    """Senders in a filter's `from` criterion (`a OR b OR c`), lowercased."""
+    return {s.strip().lower() for s in criteria.get('from', '').split(' OR ') if s.strip()}
+
+
+def _superseded_filters(
+    new: dict[str, Any], existing: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Existing filters that `new` fully replaces.
+
+    A filter is superseded only when it is a pure `from:` filter with exactly the
+    same action and every one of its senders is in `new` — so deleting it after
+    `new` is created loses no coverage. This stops a growing list (unsubbed,
+    kill) from stacking one longer filter per run.
+    """
+    def action_key(action: dict[str, Any]) -> tuple[frozenset, frozenset]:
+        return (frozenset(action.get('addLabelIds', [])),
+                frozenset(action.get('removeLabelIds', [])))
+
+    new_senders = _from_set(new['criteria'])
+    out = []
+    for f in existing:
+        crit = f.get('criteria', {})
+        if set(crit) != {'from'} or action_key(f.get('action', {})) != action_key(new['action']):
+            continue
+        if _from_set(crit) < new_senders:
+            out.append(f)
+    return out
+
+
 def _list_filters(gmail: 'GmailCLI') -> list[dict[str, Any]]:
     """List all existing Gmail filters."""
     try:
-        resp = gmail.service.users().settings().filters().list(userId='me').execute()
+        resp = gmail.service.users().settings().filters().list(userId='me').execute(num_retries=API_RETRIES)
         return resp.get('filter', [])
     except HttpError as e:
         print(f"❌ Error listing filters: {e}")
@@ -974,7 +1186,7 @@ def cmd_filters(args):
     upgraded, skipped_existing = _upgrade_existing_filters(gmail, dry_run=args.dry_run)
     print(f"  → {upgraded} upgraded, {skipped_existing} unchanged\n")
 
-    print("🏗  Step 2: Build new filter preset (humans / has:list / unsubbed / killlist)\n")
+    print("🏗  Step 2: Build new filter preset (humans / unsubbed / killlist)\n")
     preset = _build_filter_preset(gmail)
 
     # Re-fetch existing filters after upgrade for dedup.
@@ -989,7 +1201,11 @@ def cmd_filters(args):
         print("📋 Filters that would be created:\n")
         for i, f in enumerate(preset, 1):
             key = (f['criteria'].get('from', ''), f['criteria'].get('query', ''))
-            status = '(SKIP — already exists)' if key in existing_keys else '(NEW)'
+            if key in existing_keys:
+                status = '(SKIP — already exists)'
+            else:
+                replaces = len(_superseded_filters(f, existing))
+                status = f'(NEW, replaces {replaces} older)' if replaces else '(NEW)'
             print(f"{i}. {f['name']} {status}")
             if f['criteria'].get('from'):
                 print(f"   from:    {f['criteria']['from'][:120]}")
@@ -1002,6 +1218,7 @@ def cmd_filters(args):
         return
 
     created = 0
+    replaced = 0
     skipped_preset = 0
     failed = 0
     for i, f in enumerate(preset, 1):
@@ -1020,10 +1237,23 @@ def cmd_filters(args):
         except HttpError as e:
             print(f"[{i}/{len(preset)}] {f['name']}: ❌ failed — {e}")
             failed += 1
+            continue
+        # Only after the new filter exists: drop older ones it fully covers.
+        for old in _superseded_filters(f, existing):
+            try:
+                gmail.service.users().settings().filters().delete(
+                    userId='me', id=old['id'],
+                ).execute()
+                print(f"      ↳ removed superseded filter {old['id']} "
+                      f"({len(_from_set(old['criteria']))} senders, all covered)")
+                replaced += 1
+            except HttpError as e:
+                print(f"      ↳ could not remove superseded filter {old['id']}: {e}")
 
     print("\n📊 Summary:")
     print(f"   Existing upgraded:  {upgraded}")
     print(f"   New created:        {created}")
+    print(f"   Superseded removed: {replaced}")
     print(f"   Skipped (dup):      {skipped_preset}")
     print(f"   Failed:             {failed}")
 
@@ -1093,31 +1323,67 @@ def cmd_accounts(args):
         return
 
 
+# Google's bulk-sender rules give senders 2 days to honor an unsubscribe.
+# Mail inside that grace period is not evidence the unsubscribe failed.
+VERIFY_GRACE_DAYS = 2
+
+
+def _verify_query(
+    sender: str,
+    unsubscribed_at: datetime | None,
+    window_start: datetime,
+    now: datetime,
+    grace_days: int = VERIFY_GRACE_DAYS,
+) -> str | None:
+    """Gmail query counting a sender's mail that proves an unsubscribe did not stick.
+
+    Timestamped entries only count mail after unsubscribed_at + grace, so mail sent
+    before the unsubscribe (or while the sender was still processing it) is ignored.
+    Returns None while the grace period is still running — too early to judge.
+    Legacy entries without a timestamp fall back to the plain window.
+    """
+    start = window_start
+    if unsubscribed_at is not None:
+        judged_from = unsubscribed_at + timedelta(days=grace_days)
+        if judged_from > now:
+            return None
+        start = max(start, judged_from)
+    return f'from:{sender} after:{int(start.timestamp())}'
+
+
 def cmd_verify(args):
     """Verify previously-unsubscribed senders are silent. Optionally escalate."""
-    gmail = GmailCLI(args.email)
+    from gmail_cleanup.lists_io import load_unsubbed_entries
 
-    if not UNSUBBED_SENDERS:
-        print("ℹ️  lists/unsubbed.yaml is empty — nothing to verify.")
+    entries = load_unsubbed_entries()
+    if not entries:
+        print("ℹ️  No unsubscribed senders recorded yet — nothing to verify.")
         return
+
+    gmail = GmailCLI(args.email)
+    now = datetime.now(UTC)
+    grace_days = getattr(args, 'grace_days', VERIFY_GRACE_DAYS)
 
     # --since wins over --days for precision (counts only mail arrived after that date).
     if args.since:
-        window = f'after:{args.since.replace("-", "/")}'
+        window_start = datetime.strptime(args.since, '%Y-%m-%d').astimezone(UTC)
         window_desc = f"since {args.since}"
     else:
-        window = f'newer_than:{args.days}d'
+        window_start = now - timedelta(days=args.days)
         window_desc = f"the last {args.days} days"
 
-    print(f"🔍 Verifying {len(UNSUBBED_SENDERS)} previously-unsubscribed senders "
-          f"against {window_desc}...\n")
+    print(f"🔍 Verifying {len(entries)} previously-unsubscribed senders "
+          f"against {window_desc} (ignoring mail within {grace_days}d of each unsubscribe)...\n")
 
     stuck = []  # (sender, count)
     silent = []
-    for sender in UNSUBBED_SENDERS:
-        query = f'from:{sender} {window}'
-        messages = gmail.search_messages(query, max_results=args.limit)
-        count = len(messages)
+    pending = []
+    for sender, unsubscribed_at in entries:
+        query = _verify_query(sender, unsubscribed_at, window_start, now, grace_days)
+        if query is None:
+            pending.append(sender)
+            continue
+        count = len(gmail.search_messages(query, max_results=args.limit))
         if count > 0:
             stuck.append((sender, count))
         else:
@@ -1127,11 +1393,14 @@ def cmd_verify(args):
     stuck.sort(key=lambda t: t[1], reverse=True)
 
     if stuck:
-        print(f"❌ STUCK — {len(stuck)} senders still arriving:")
+        print(f"❌ STUCK — {len(stuck)} senders still arriving after unsubscribing:")
         for sender, count in stuck:
             print(f"   {count:>4}  {sender}")
         print()
-    print(f"✅ SILENT — {len(silent)} unsubscribes appear to have stuck.")
+    print(f"✅ SILENT  — {len(silent)} unsubscribes appear to have stuck.")
+    if pending:
+        print(f"⏳ PENDING — {len(pending)} unsubscribed within the last {grace_days}d; "
+              "checked on a later run.")
 
     if not stuck:
         return
@@ -1156,18 +1425,76 @@ def cmd_verify(args):
     print(f"   Failed:                {failed}")
 
 
+class _Tee:
+    """Write-through stdout wrapper that also records everything written."""
+
+    def __init__(self, stream):
+        self._stream = stream
+        self.buffer = io.StringIO()
+
+    def write(self, text: str) -> int:
+        self.buffer.write(text)
+        return self._stream.write(text)
+
+    def flush(self) -> None:
+        self._stream.flush()
+
+    def isatty(self) -> bool:
+        # Keep live progress redraws out of the recorded report.
+        return False
+
+
+_ANSI_RE = re.compile(r'\x1b\[[0-9;?]*[A-Za-z]')
+
+
+def _email_report_to_self(gmail_email: str, report: str, dry_run: bool) -> None:
+    """Send the captured autopilot report to the account owner. Never raises."""
+    subject = f"gmail-cleanup autopilot{' (dry run)' if dry_run else ''} — {gmail_email}"
+    try:
+        sent = GmailCLI(gmail_email).send_message(gmail_email, subject, _ANSI_RE.sub('', report))
+    except Exception as exc:  # a report email must not fail a finished run
+        print(f"⚠️  Could not email the autopilot report: {type(exc).__name__}")
+        return
+    if sent:
+        print(f"📧 Report emailed to {gmail_email}")
+
+
 def cmd_autopilot(args):
     """Run the full safe-by-default cleanup workflow in one shot.
 
     Sequence:
       1. filters apply       → upgrade existing + create preset (idempotent)
-      2. unsubscribe         → kill noise from the last 30 days, min-count 2
+      2. unsubscribe         → kill noise from the last --days days (default 30),
+                               senders with at least --min-count messages (default 2)
       3. mark-read           → clear the archived-but-unread backlog
       4. verify              → check stickiness; optionally escalate stuck senders
 
-    Safe to run repeatedly. Use --dry-run to preview without taking action.
+    Safe to run repeatedly. Use --dry-run to preview without taking action, and
+    --email-summary to have the report emailed to the account itself.
     """
+    if not getattr(args, 'email_summary', False):
+        _run_autopilot(args)
+        return
+    tee = _Tee(sys.stdout)
+    real_stdout, sys.stdout = sys.stdout, tee
+    try:
+        _run_autopilot(args)
+    finally:
+        sys.stdout = real_stdout
+    _email_report_to_self(args.email, tee.buffer.getvalue(), args.dry_run)
+
+
+def _run_autopilot(args):
     from argparse import Namespace
+
+    paused_until = rate_limited_until(args.email)
+    if paused_until:
+        print(f"⏸  Gmail rate-limited this account until "
+              f"{paused_until.astimezone():%H:%M:%S}. Skipping this run; try again after that.")
+        return
+
+    days = getattr(args, 'days', 30)
+    min_count = getattr(args, 'min_count', 2)
 
     print("🤖 gmail-cleanup autopilot — full inbox cleanup\n")
     print("=" * 72)
@@ -1179,11 +1506,12 @@ def cmd_autopilot(args):
         dry_run=args.dry_run,
     ))
 
-    print("\n━━━ Phase 2/4: Unsubscribe noise senders (last 30d, min-count 2) ━━━\n")
+    print(f"\n━━━ Phase 2/4: Unsubscribe noise senders (last {days}d, "
+          f"min-count {min_count}) ━━━\n")
     cmd_unsubscribe(Namespace(
         email=args.email,
-        days=30,
-        min_count=2,
+        days=days,
+        min_count=min_count,
         limit=2000,
         dry_run=args.dry_run,
         no_archive=False,
@@ -1211,6 +1539,7 @@ def cmd_autopilot(args):
         since=None,
         limit=100,
         escalate=args.escalate,
+        grace_days=VERIFY_GRACE_DAYS,
     ))
 
     print("\n" + "=" * 72)
@@ -1568,6 +1897,14 @@ Examples:
                              help='In phase 4, auto-create block filters for stuck senders')
     parser_auto.add_argument('--all-accounts', action='store_true',
                              help='Run for every configured account')
+    parser_auto.add_argument('--days', type=int, default=30,
+                             help='Unsubscribe phase: look back N days (default: 30)')
+    parser_auto.add_argument('--min-count', type=int, default=2,
+                             help='Unsubscribe phase: min messages per sender (default: 2; '
+                                  'kill-list senders always qualify)')
+    parser_auto.add_argument('--email-summary', action='store_true',
+                             help="Email this run's report to the account itself "
+                                  '(pairs well with --dry-run for a daily preview)')
     parser_auto.set_defaults(func=cmd_autopilot)
 
     # Stats command
@@ -1648,6 +1985,9 @@ Examples:
                                help='Max messages to count per sender (default: 100)')
     parser_verify.add_argument('--escalate', action='store_true',
                                help='Auto-create a block filter (auto-trash) for each stuck sender')
+    parser_verify.add_argument('--grace-days', type=int, default=VERIFY_GRACE_DAYS,
+                               help='Ignore mail within N days after each unsubscribe '
+                                    f'(default: {VERIFY_GRACE_DAYS})')
     parser_verify.add_argument('--all-accounts', action='store_true',
                                help='Run for every configured account')
     parser_verify.set_defaults(func=cmd_verify)

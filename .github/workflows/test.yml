@@ -30,7 +30,7 @@ jobs:
           pip install -e ".[dev]"
 
       - name: Run ruff
-        run: ruff check gmail_cleanup
+        run: ruff check .
 
       - name: Run pytest
         run: pytest -q
