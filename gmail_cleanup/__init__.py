@@ -13,10 +13,12 @@ import os
 import pickle
 import re
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
 from collections import defaultdict
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from email.message import EmailMessage
 from pathlib import Path
@@ -43,6 +45,22 @@ SCOPES = [
 # off exponentially on 429 rate limits and 5xx errors. Non-idempotent calls
 # (send, create) are deliberately not retried, so a retry can't duplicate them.
 API_RETRIES = 5
+
+# Batched metadata fetches: 50 messages.get per HTTP batch (Google's recommended
+# ceiling), at most one batch per second = 250 quota units/s, Gmail's per-user rate.
+BATCH_SIZE = 50
+BATCH_INTERVAL = 1.0
+_RETRYABLE_STATUS = {429, 500, 502, 503, 504}
+
+
+def _is_retryable(error: Exception) -> bool:
+    """Rate limits and transient server errors are worth retrying; the rest are not."""
+    if not isinstance(error, HttpError):
+        return False
+    status = getattr(error.resp, 'status', None)
+    if status in _RETRYABLE_STATUS:
+        return True
+    return status == 403 and b'RateLimitExceeded' in (error.content or b'')
 
 # HTTP request settings for unsubscribe link execution
 UNSUB_HTTP_TIMEOUT = 5  # seconds
@@ -257,6 +275,63 @@ class GmailCLI:
         except HttpError as error:
             print(f"❌ Error fetching message {message_id}: {error}")
             return None
+
+    def get_messages_metadata(
+        self,
+        message_ids: list[str],
+        headers: list[str],
+        on_progress: Callable[[], None] | None = None,
+    ) -> dict[str, dict[str, Any]]:
+        """Fetch metadata (only `headers`) for many messages via batched requests.
+
+        Returns {message_id: message}. Sub-requests that hit a rate limit or 5xx are
+        retried with exponential backoff; others are skipped and counted in a warning,
+        never dropped silently. on_progress fires once per message, fetched or not.
+        """
+        results: dict[str, dict[str, Any]] = {}
+        pending = list(message_ids)
+        last_start = 0.0
+        for attempt in range(API_RETRIES + 1):
+            retry: list[str] = []
+
+            def callback(request_id, response, exception, _retry=retry,
+                         _can_retry=attempt < API_RETRIES):
+                if exception is None:
+                    results[request_id] = response
+                elif _can_retry and _is_retryable(exception):
+                    _retry.append(request_id)
+                    return
+                if on_progress:
+                    on_progress()
+
+            for i in range(0, len(pending), BATCH_SIZE):
+                chunk = pending[i:i + BATCH_SIZE]
+                wait = BATCH_INTERVAL - (time.monotonic() - last_start)
+                if wait > 0:
+                    time.sleep(wait)
+                last_start = time.monotonic()
+                batch = self.service.new_batch_http_request(callback=callback)
+                for mid in chunk:
+                    batch.add(
+                        self.service.users().messages().get(
+                            userId='me', id=mid, format='metadata', metadataHeaders=headers,
+                        ),
+                        request_id=mid,
+                    )
+                try:
+                    batch.execute()
+                except (HttpError, OSError):
+                    # Whole-batch failure: retry whatever in this chunk wasn't answered.
+                    retry.extend(m for m in chunk if m not in results and m not in retry)
+            pending = retry
+            if not pending:
+                break
+            time.sleep(min(2 ** (attempt + 1), 32))
+
+        failed = len(message_ids) - len(results)
+        if failed:
+            print(f"⚠️  {failed:,} message(s) could not be fetched and were skipped")
+        return results
 
     def get_header(self, message: dict[str, Any], header_name: str) -> str:
         """Extract header value from message"""
@@ -627,16 +702,22 @@ def cmd_unsubscribe(args):
     sender_msgs: dict[str, list[str]] = defaultdict(list)
     sender_first_msg: dict[str, str] = {}
 
+    # One batched pass fetches every header we need, so the per-sender
+    # List-Unsubscribe lookup below needs no second round of API calls.
     with progress_for("Analyzing inbox", total=len(messages)) as p:
-        for msg in messages:
-            full_msg = gmail.get_message(msg['id'], format='metadata')
-            if full_msg:
-                sender = _extract_email(gmail.get_header(full_msg, 'From'))
-                if sender:
-                    sender_msgs[sender].append(msg['id'])
-                    if sender not in sender_first_msg:
-                        sender_first_msg[sender] = msg['id']
-            advance(p)
+        fetched = gmail.get_messages_metadata(
+            [msg['id'] for msg in messages],
+            ['From', 'List-Unsubscribe', 'List-Unsubscribe-Post'],
+            on_progress=lambda: advance(p),
+        )
+    for msg in messages:
+        full_msg = fetched.get(msg['id'])
+        if full_msg:
+            sender = _extract_email(gmail.get_header(full_msg, 'From'))
+            if sender:
+                sender_msgs[sender].append(msg['id'])
+                if sender not in sender_first_msg:
+                    sender_first_msg[sender] = msg['id']
 
     print(f"   Analyzed {len(messages):,} messages, {len(sender_msgs)} unique senders\n")
 
@@ -658,8 +739,8 @@ def cmd_unsubscribe(args):
                 keep_skipped.append((sender, len(msg_ids), keep_hit))
                 continue
 
-        # Fetch headers to find List-Unsubscribe.
-        rep = gmail.get_message(sender_first_msg[sender], format='metadata')
+        # List-Unsubscribe headers were fetched in the batched pass above.
+        rep = fetched.get(sender_first_msg[sender])
         if not rep:
             continue
         list_unsub = gmail.get_header(rep, 'List-Unsubscribe')
