@@ -103,6 +103,22 @@ Every sender falls into one of three buckets:
 
 Tune the buckets by editing the YAML files in `~/.gmail_cli/lists/` — no Python required.
 
+### How a sender gets picked
+
+No AI, no guessing — deterministic rules over email headers, so every decision is explainable:
+
+1. **Group** inbox mail by sender (`From` header).
+2. **Target** a sender if it sent at least `--min-count` messages in the window, or matches `kill.yaml`.
+3. **Protect**: drop anyone in `humans.yaml` (exact match — always wins), then anyone matching `keep.yaml` (substring).
+4. **Require a `List-Unsubscribe` header.** No header means a person or a transactional sender — skipped, not archived.
+5. **Unsubscribe** by the best method offered: RFC 8058 one-click POST → HTTPS GET → `mailto:`.
+6. **Archive** that sender's inbox mail (never delete).
+7. **Verify** later: mail still arriving after the unsubscribe plus a 2-day grace period marks the sender *stuck*; `--escalate` then blocks it.
+
+### Gentle on the Gmail API
+
+Scans are batched and paced to Google's documented per-user quota (100 units/s), back off on rate limits (honoring `Retry-After`), and remember a throttle so a scheduled run never piles on. A 3,000-message inbox scans in about 10 minutes.
+
 ---
 
 ## 🛠 The autopilot pipeline

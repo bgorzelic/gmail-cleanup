@@ -53,6 +53,21 @@ These are spec §14 out-of-scope items carried forward, plus new ideas — none 
 - **Windows `schedule` support.** v0.5 scheduler is macOS-only (launchd). Task Scheduler equivalent for Windows users.
 - ✅ (partial, v0.6.0: webhook + `autopilot --email-summary`) **Notification hooks.** Post-autopilot summary to Slack / Telegram / email. Useful for `--all-accounts` multi-account runs.
 
+## v0.6.0 — ✅ DONE (2026-09-30)
+
+First PyPI release, as `gmail-inbox-cleanup`. See [CHANGELOG](CHANGELOG.md). Headlines: lists split into packaged seeds + `~/.gmail_cli/lists/`; `verify` judges only post-unsubscribe mail; batched, quota-paced scans with real rate-limit handling; humans always win; `has:list` filter removed; filters replace rather than stack.
+
+## v0.7 candidates
+
+- **Incremental sync.** Cache message IDs + sender headers locally and update with `history.list` (2 units/call) from a saved `historyId`. After one full scan, a daily autopilot fetches only new mail — seconds instead of minutes, without exceeding quota. (Pattern used by `elie222/inbox-zero`; ideas only — that project is AGPL.)
+- **Timestamp legacy `unsubbed.yaml` entries on re-unsubscribe.** A bare-string (pre-0.6) entry that gets unsubscribed again keeps no timestamp, so `verify` still judges it on the plain 14-day window.
+- **Gmail filter size limit.** The `previously-unsubscribed` filter ORs every sender into one `from:`. Chunk it into several filters before it hits Gmail's criteria-length limit.
+- **`scrub` command.** Archive by Gmail category / age with a saved undo manifest (done by hand on 2026-09-30: Promotions, Social, Updates older than 14 days).
+- **`stats` should match `status`** (conversations, inbox-only unread) — it still counts messages.
+- **Seed keep-list additions**: `noreply-accounts@google.com`, card issuers such as `synchrony`, `intuit.com`.
+- **Pass `--email-summary` through `schedule install`.**
+- Still open from v0.5: Linux/Windows scheduler, asciinema demo.
+
 ## Open questions
 
 - Push to public GitHub? (One command away: `gh repo create bgorzelic/gmail-cleanup --public --source=. --push`.)

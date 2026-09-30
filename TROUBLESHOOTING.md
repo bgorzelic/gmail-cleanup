@@ -124,6 +124,36 @@ If you're using **`pipx`** (recommended for end-users), the binary is installed 
 
 ---
 
+## 7. "Gmail rate limit hit — waiting…" / autopilot says it is rate-limited
+
+Normal, and handled. Gmail allows 6,000 quota units per user per minute; a header fetch costs 20. The tool paces itself to that rate, and when Gmail still pushes back it waits (honoring `Retry-After`) and retries — nothing is lost. You will see a line like `⏱ 342 rate-limited/5xx response(s) retried with backoff`.
+
+If `autopilot` prints `⏸ Gmail rate-limited this account until HH:MM:SS`, a recent run was throttled and this run is skipping itself on purpose. Wait until that time. To clear the marker by hand: `rm ~/.gmail_cli/rate_limit_<email>.json`.
+
+Other Gmail clients (mail apps, other scripts, MCP connectors) share the same per-user quota, so heavy use elsewhere makes throttling more likely.
+
+---
+
+## 8. My `status` numbers changed after upgrading to 0.6.0
+
+`status` now reports what Gmail's UI shows: inbox **conversations** and **inbox-only** unread. Earlier versions counted individual messages and unread mail across all of Gmail, so the old numbers were higher.
+
+---
+
+## 9. OAuth client downloaded but the tool can't find it
+
+The tool looks for `~/.gmail_cli/credentials.json`. Download the **Desktop app** client JSON from Google Cloud Console in your normal browser (automation-controlled browsers save downloads to a temp folder under a random name), then:
+
+```bash
+mkdir -p ~/.gmail_cli
+mv ~/Downloads/client_secret_*.json ~/.gmail_cli/credentials.json
+chmod 600 ~/.gmail_cli/credentials.json
+```
+
+A "Web application" client will fail sign-in with `redirect_uri_mismatch` — it must be a Desktop client.
+
+---
+
 ## Still stuck?
 
 Open a [bug report](https://github.com/bgorzelic/gmail-cleanup/issues/new?template=bug_report.md) with:
@@ -131,6 +161,6 @@ Open a [bug report](https://github.com/bgorzelic/gmail-cleanup/issues/new?templa
 - Full command line you ran
 - Full output / error message
 - OS + Python version (`python3 --version`)
-- gmail-cleanup version (`pip show gmail-cleanup | grep Version`)
+- gmail-cleanup version (`pip show gmail-inbox-cleanup | grep Version`)
 
 For anything involving accidental loss of mail or KEEP-list bypass, mark the issue as safety-critical.

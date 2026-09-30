@@ -10,7 +10,7 @@ Thanks for taking the time to look at this. This is a small, focused tool — co
 4. **Look at [`HANDOFF.md`](HANDOFF.md)** for current open work.
 5. **Pick a [Good First Issue](https://github.com/bgorzelic/gmail-cleanup/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22)** — or open a discussion before larger changes.
 
-**Cardinal rule:** Read the four safety invariants in `ARCHITECTURE.md` before touching anything in `cmd_unsubscribe`, the `gmail_cleanup/lists/*.yaml` seeds, or `test_safety.py`. The tool's job is to *never* unsubscribe from a bank.
+**Cardinal rule:** Read the six safety invariants in `ARCHITECTURE.md` before touching anything in `cmd_unsubscribe`, the `gmail_cleanup/lists/*.yaml` seeds, or `test_safety.py`. The tool's job is to *never* unsubscribe from a bank.
 
 ## Project values
 
