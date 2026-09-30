@@ -2,7 +2,7 @@
 
 **Last updated:** 2026-09-30
 **Account under test:** bgorzelic@gmail.com
-**Tool version:** v0.6.0 — on PyPI as [`gmail-inbox-cleanup`](https://pypi.org/project/gmail-inbox-cleanup/)
+**Tool version:** v0.6.1 — on PyPI as [`gmail-inbox-cleanup`](https://pypi.org/project/gmail-inbox-cleanup/)
 **Repo status:** Public — github.com/bgorzelic/gmail-cleanup
 
 ## What this is
