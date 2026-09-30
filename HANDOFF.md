@@ -36,7 +36,7 @@ Shipped v0.6.0 and cleaned the inbox with it.
 - Header scans batched (25 per request) and paced to Gmail's documented quota; `Retry-After` backoff; throttle remembered in `~/.gmail_cli/rate_limit_<email>.json`.
 - `status` matches Gmail's UI from one API call.
 - `autopilot --days / --min-count / --email-summary`, `verify --grace-days`.
-- Tests 185 → 219; `HOME` is sandboxed for the whole test session.
+- Tests 185 → 221; `HOME` is sandboxed for the whole test session.
 
 **Inbox (three live runs + one manual scrub)**
 - Autopilot, last 30 days: 163 unsubscribed, 1,021 archived.

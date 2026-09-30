@@ -233,6 +233,7 @@ CI runs pytest on Python 3.11/3.12/3.13 for every push and PR.
 - [**`ROADMAP.md`**](ROADMAP.md) — what's planned
 - [**`CONTRIBUTING.md`**](CONTRIBUTING.md) — how to contribute
 - [`gmail_cleanup/lists/README.md`](gmail_cleanup/lists/README.md) — list conflict-resolution rules
+- [`docs/AAR-2026-09-30.md`](docs/AAR-2026-09-30.md) — after-action report: the v0.6.0 release and first live cleanup
 - [`docs/superpowers/specs/`](docs/superpowers/specs/) — design specs for major features
 - [`docs/superpowers/plans/`](docs/superpowers/plans/) — implementation plans
 

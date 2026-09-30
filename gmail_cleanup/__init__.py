@@ -64,19 +64,35 @@ BATCH_INTERVAL = BATCH_SIZE * MESSAGES_GET_UNITS / QUOTA_UNITS_PER_SEC
 # sub-request of a batch against the per-user limit.
 RETRY_BATCH_SIZE = 10
 _SERVER_ERROR_STATUS = {500, 502, 503, 504}
-_RATE_LIMIT_REASONS = (b'ratelimitexceeded', b'quotaexceeded')  # also matches userRateLimitExceeded
+# Per Google's "Resolve errors" guide (checked 2026-09-30): 403 rateLimitExceeded /
+# userRateLimitExceeded and any 429 mean "slow down"; 403 dailyLimitExceeded means
+# the project's budget is gone — retrying cannot help. quotaExceeded is not
+# documented for Gmail; it is treated as exhausted too, the conservative reading.
+_RATE_LIMIT_REASON = b'ratelimitexceeded'  # also matches userRateLimitExceeded
+_QUOTA_EXHAUSTED_REASONS = (b'dailylimitexceeded', b'quotaexceeded')
 MAX_RETRY_AFTER = 300  # seconds; never trust a server-sent wait longer than this
 
 
+class QuotaExhaustedError(RuntimeError):
+    """Gmail says the quota is used up. Stop — retrying only prolongs the lockout."""
+
+
+def _is_quota_exhausted(error: Exception) -> bool:
+    """A 403 whose reason is a spent daily/project quota, not a rate limit."""
+    if not isinstance(error, HttpError) or getattr(error.resp, 'status', None) != 403:
+        return False
+    content = (error.content or b'').lower()
+    return any(reason in content for reason in _QUOTA_EXHAUSTED_REASONS)
+
+
 def _is_rate_limit(error: Exception) -> bool:
-    """429, or a 403 whose reason is a rate/quota limit (Gmail uses both)."""
+    """429, or a 403 rate-limit reason. Worth retrying after a wait."""
     if not isinstance(error, HttpError):
         return False
     status = getattr(error.resp, 'status', None)
     if status == 429:
         return True
-    content = (error.content or b'').lower()
-    return status == 403 and any(reason in content for reason in _RATE_LIMIT_REASONS)
+    return status == 403 and _RATE_LIMIT_REASON in (error.content or b'').lower()
 
 
 def _is_retryable(error: Exception) -> bool:
@@ -362,6 +378,7 @@ class GmailCLI:
         last_start = 0.0
         throttled = 0
         done = 0
+        exhausted: list[Exception] = []
         show_lines = not sys.stdout.isatty()  # the progress bar only draws on a terminal
         for attempt in range(API_RETRIES + 1):
             retry: list[str] = []
@@ -369,6 +386,9 @@ class GmailCLI:
 
             def callback(request_id, response, exception, _retry=retry, _errors=errors,
                          _can_retry=attempt < API_RETRIES):
+                if exception is not None and _is_quota_exhausted(exception):
+                    exhausted.append(exception)
+                    return
                 if exception is None:
                     results[request_id] = response
                 elif _can_retry and _is_retryable(exception):
@@ -398,9 +418,18 @@ class GmailCLI:
                 try:
                     batch.execute()
                 except (HttpError, OSError) as error:
-                    # Whole-batch failure: retry whatever in this chunk wasn't answered.
-                    retry.extend(m for m in chunk if m not in results and m not in retry)
-                    errors.append(error)
+                    if _is_quota_exhausted(error):
+                        exhausted.append(error)
+                    else:
+                        # Whole-batch failure: retry whatever in this chunk wasn't answered.
+                        retry.extend(m for m in chunk if m not in results and m not in retry)
+                        errors.append(error)
+                if exhausted:
+                    raise QuotaExhaustedError(
+                        f"Gmail quota exhausted after fetching {len(results):,} of "
+                        f"{len(message_ids):,} messages. Stopping instead of retrying; "
+                        "try again later (daily quotas reset at midnight Pacific)."
+                    )
                 done += len(chunk)
                 if show_lines and attempt == 0 and (done % 500 < size or done >= len(pending)):
                     print(f"   … fetched {min(done, len(pending)):,}/{len(pending):,}")
@@ -2162,7 +2191,11 @@ Examples:
         print(f"   Total: {len(accounts)}   Failed: {len(failures)}")
         sys.exit(len(failures))
     else:
-        args.func(args)
+        try:
+            args.func(args)
+        except QuotaExhaustedError as e:
+            print(f"🛑 {e}")
+            sys.exit(2)
 
 
 if __name__ == '__main__':

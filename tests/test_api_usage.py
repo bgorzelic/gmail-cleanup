@@ -133,10 +133,30 @@ def _rate_error(status=429, content=b'', retry_after=None):
     return HttpError(resp, content)
 
 
-def test_quota_exceeded_403_counts_as_rate_limit():
-    assert gmail_cli._is_rate_limit(_rate_error(403, b'{"reason": "quotaExceeded"}'))
+def test_rate_limit_reasons_are_retryable():
+    assert gmail_cli._is_rate_limit(_rate_error(429))
+    assert gmail_cli._is_rate_limit(_rate_error(403, b'{"reason": "rateLimitExceeded"}'))
     assert gmail_cli._is_rate_limit(_rate_error(403, b'{"reason": "userRateLimitExceeded"}'))
     assert not gmail_cli._is_rate_limit(_rate_error(403, b'{"reason": "insufficientPermissions"}'))
+
+
+def test_exhausted_quota_is_not_retryable():
+    for reason in (b'dailyLimitExceeded', b'quotaExceeded'):
+        error = _rate_error(403, b'{"reason": "' + reason + b'"}')
+        assert gmail_cli._is_quota_exhausted(error)
+        assert not gmail_cli._is_rate_limit(error)
+        assert not gmail_cli._is_retryable(error)
+    assert not gmail_cli._is_quota_exhausted(_rate_error(429))
+
+
+def test_exhausted_quota_stops_the_scan_instead_of_retrying(monkeypatch):
+    import pytest
+
+    daily = _rate_error(403, b'{"reason": "dailyLimitExceeded"}')
+    gmail, log = _batching_client(monkeypatch, lambda mid: (None, daily))
+    with pytest.raises(gmail_cli.QuotaExhaustedError):
+        gmail.get_messages_metadata([str(i) for i in range(60)], ['From'])
+    assert len(log) == 1  # stopped after the first batch; no retries, no further batches
 
 
 def test_retry_after_header_wins_and_is_capped():

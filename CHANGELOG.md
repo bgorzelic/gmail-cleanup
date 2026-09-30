@@ -4,6 +4,11 @@ All notable changes to this project. Format loosely based on [Keep a Changelog](
 
 ## [Unreleased]
 
+### Fixed
+- **An exhausted Gmail quota stops the run instead of being retried.** A 403
+  `dailyLimitExceeded` (or `quotaExceeded`) now raises a clear error and exits
+  with status 2. v0.6.0 treated `quotaExceeded` as a rate limit and retried it.
+
 ## [0.6.0] — 2026-09-30
 
 The "installable" release. First release on PyPI, as **`gmail-inbox-cleanup`**
