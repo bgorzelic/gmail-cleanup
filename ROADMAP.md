@@ -46,12 +46,12 @@ The repo is publish-quality. When you push to GitHub public, no further polish i
 These are spec §14 out-of-scope items carried forward, plus new ideas — none are blockers.
 
 - **`asciinema` demo** embedded in README. The cleanest first impression for a CLI.
-- **Project-default vs. user-override list separation.** Current `lists/*.yaml` mix project defaults (kill list, keep-list categories) with user state (humans, unsubbed). Split into `lists/defaults/*.yaml` (shipped) and `~/.gmail_cli/lists/*.yaml` (user) with a merge step in `_load_list`.
-- **PyPI publish.** Once external users have run it on their inbox without surprises, ship to PyPI so `pip install gmail-cleanup` works for everyone.
-- **GitHub Actions CI.** Lint + test on every PR. Cheap and standard.
-- **`verify` schema upgrade.** Move `lists/unsubbed.yaml` to a richer schema (`{sender, unsubscribed_at}`) so `verify` can compute per-sender windows automatically instead of relying on `--since`.
+- ✅ **Project-default vs. user-override list separation** (v0.6.0). Seeds ship in `gmail_cleanup/lists/`; user lists live in `~/.gmail_cli/lists/` and merge in `_load_list`.
+- ✅ **PyPI publish** (v0.6.0) as `gmail-inbox-cleanup` — the `gmail-cleanup` name on PyPI belongs to an unrelated project.
+- ✅ **GitHub Actions CI.** Lint + test on every PR. Cheap and standard.
+- ✅ **`verify` schema upgrade** (v0.6.0). `unsubbed.yaml` entries carry `unsubscribed_at`; `verify` computes per-sender windows from it instead of relying on `--since`.
 - **Windows `schedule` support.** v0.5 scheduler is macOS-only (launchd). Task Scheduler equivalent for Windows users.
-- **Notification hooks.** Post-autopilot summary to Slack / Telegram / email. Useful for `--all-accounts` multi-account runs.
+- ✅ (partial, v0.6.0: webhook + `autopilot --email-summary`) **Notification hooks.** Post-autopilot summary to Slack / Telegram / email. Useful for `--all-accounts` multi-account runs.
 
 ## Open questions
 

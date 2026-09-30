@@ -10,18 +10,18 @@ gmail-cleanup/
 │   ├── __init__.py             # 1,800+ lines: CLI entry, GmailCLI class, all cmd_X functions
 │   ├── config.py               # YAML config loader (~/.gmail_cli/config.yaml)
 │   ├── accounts.py             # Multi-account add/list/remove via config
-│   ├── lists_io.py             # Atomic append to lists/unsubbed.yaml
+│   ├── lists_io.py             # Seed + user unsubbed.yaml: merged read, atomic append
 │   ├── progress.py             # rich.progress wrapper + --quiet/--verbose mode
 │   ├── state.py                # Per-account state file (~/.gmail_cli/state_<email>.json)
 │   ├── scheduler.py            # macOS launchd plist + wrapper script generation
-│   └── setup_wizard.py         # Interactive 7-step OAuth onboarding
-├── lists/                      # Data files (NOT code) — edit these to tune behavior
-│   ├── keep.yaml               # Substring KEEP list — banks, .gov, security
-│   ├── kill.yaml               # Substring kill list — pure noise senders
-│   ├── humans.yaml             # Exact-match human whitelist
-│   ├── unsubbed.yaml           # Senders we've unsubscribed from (auto-managed)
-│   └── README.md               # Conflict-resolution rules between the 4 files
-├── tests/                      # pytest (84 tests, ~0.2s)
+│   ├── setup_wizard.py         # Interactive 7-step OAuth onboarding
+│   └── lists/                  # Packaged seed lists (data, NOT code), merged with ~/.gmail_cli/lists/
+│       ├── keep.yaml           # Substring KEEP list — banks, .gov, security (ships populated)
+│       ├── kill.yaml           # Substring kill list — pure noise senders (ships empty)
+│       ├── humans.yaml         # Exact-match human whitelist (ships empty)
+│       ├── unsubbed.yaml       # Unsubscribed senders (ships empty; tool writes the user copy)
+│       └── README.md           # Conflict-resolution rules between the 4 files
+├── tests/                      # pytest (200+ tests, <1s)
 │   ├── conftest.py
 │   ├── test_accounts.py
 │   ├── test_attachments_parse.py
@@ -186,6 +186,9 @@ These are enforced by `tests/test_safety.py`. Touching the substring-match in `c
 | `test_helpers.py` | Header parsers, email extraction, Gmail query builders |
 | `test_lists.py` | YAML list loader |
 | `test_lists_auto_append.py` | Atomic write semantics for `unsubbed.yaml` |
+| `test_lists_layout.py` | Packaged seed vs. `~/.gmail_cli/lists/` split, timestamps |
+| `test_verify_window.py` | `verify` counts only post-unsubscribe mail; pending senders never escalated |
+| `test_autopilot.py` | Autopilot thresholds and `--email-summary` |
 | `test_safety.py` | **Safety-critical.** KEEP-list semantics. |
 | `test_credentials_search.py` | OAuth credentials file lookup precedence |
 | `test_config.py` | Config loader |

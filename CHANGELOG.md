@@ -4,6 +4,50 @@ All notable changes to this project. Format loosely based on [Keep a Changelog](
 
 ## [Unreleased]
 
+## [0.6.0] — 2026-09-30
+
+The "installable" release. First release on PyPI, as **`gmail-inbox-cleanup`**
+(`pipx install gmail-inbox-cleanup`); the command is still `gmail-cleanup`. The
+`gmail-cleanup` name on PyPI belongs to an unrelated project.
+
+### ⚠️ Upgrading from 0.5.x
+- **Your lists moved.** Lists now ship inside the package as seeds
+  (`gmail_cleanup/lists/`), merged with your own copies in `~/.gmail_cli/lists/`.
+  Only `keep.yaml` ships populated; `humans`, `kill` and `unsubbed` ship empty.
+  If you edited the repo's `lists/*.yaml`, copy `humans.yaml`, `kill.yaml` and
+  `unsubbed.yaml` into `~/.gmail_cli/lists/` before upgrading.
+- Successful unsubscribes are now appended to `~/.gmail_cli/lists/unsubbed.yaml`
+  (previously the repo/package copy).
+
+### Fixed
+- **`verify` no longer flags senders for mail sent before you unsubscribed.**
+  It counted every message in the last 14 days, including mail that arrived
+  before the unsubscribe, so `autopilot --escalate` run daily would block-filter
+  senders unsubscribed the day before. Entries with an `unsubscribed_at`
+  timestamp now count only mail after that time plus a grace period
+  (`--grace-days`, default 2 — Google's bulk-sender deadline). Senders still
+  inside the grace period are reported as **PENDING** and are never escalated.
+- List and state writers: a sender could be silently dropped after an
+  unterminated header comment; concurrent runs (scheduled + manual) lost records
+  and crashed on rename; a failed write could strand the newer data; event
+  deltas could overwrite a record's timestamp; malformed state files raised.
+- Wheel no longer installs a top-level `lists/` directory into site-packages,
+  and the sdist no longer sweeps in stray checkouts.
+
+### Added
+- `autopilot --days N` and `--min-count K` to tune the unsubscribe phase
+  (defaults unchanged: 30 days, 2 messages).
+- `autopilot --email-summary` emails the run's report to the account itself —
+  e.g. a scheduled `--dry-run` preview.
+- `verify --grace-days N`.
+- Autopilot webhook notification (`notify.webhook_url` in config).
+- `unsubbed.yaml` mapping format `{sender, unsubscribed_at}`; bare-string
+  entries are still read.
+- User override lists in `~/.gmail_cli/lists/` merged with the packaged seeds.
+- Tests for the scheduler, setup wizard, progress UI, list layout, verify
+  windows and autopilot (200+ tests). Tests run with a sandboxed `HOME`.
+- CI gates on `ruff check` before pytest; PyPI trusted-publishing workflow.
+
 ## [0.5.2] — 2026-05-16
 
 The "professional polish" release. No behavior changes — README rewrite, stale-reference fixes, GitHub About updated.

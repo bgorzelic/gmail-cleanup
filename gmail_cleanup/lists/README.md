@@ -1,7 +1,12 @@
 # Lists
 
-The four YAML files in this directory drive the safety model. They are the only
-files you should need to edit to tune the tool for your inbox.
+The four YAML files in this directory are the **packaged seeds** that drive the
+safety model. Only `keep.yaml` ships populated; the others ship empty because
+their contents are personal.
+
+To tune the tool, edit your own copies in `~/.gmail_cli/lists/<name>.yaml`. They
+are merged with these seeds (seed entries first, duplicates dropped). The tool
+only ever writes to `~/.gmail_cli/lists/` — never to this directory.
 
 | File | Used by | Match semantics |
 |---|---|---|
