@@ -190,7 +190,8 @@ Numbers from Google's quota page (checked 2026-09-30): **6,000 units/min per use
 
 - **Header scans** (`GmailCLI.get_messages_metadata`) use HTTP batches of `BATCH_SIZE = 25`, one batch per 5 s — exactly 100 units/s. Batching saves round-trips, not quota. 50-wide batches were throttled in live use (342 of 3,070 sub-requests): every sub-request counts against per-user concurrency.
 - **One pass, three headers.** `From`, `List-Unsubscribe`, `List-Unsubscribe-Post` are fetched together; nothing is fetched twice.
-- **Retries.** Rate limits are 429 or 403 `rateLimitExceeded` / `userRateLimitExceeded` / `quotaExceeded`. `_retry_delay` honors `Retry-After` (capped at 300 s), else backs off 5→80 s (rate limit) or 1→10 s (5xx) with jitter. Throttled items are re-sent in batches of `RETRY_BATCH_SIZE = 10`.
+- **Exhausted quota is fatal.** 403 `dailyLimitExceeded` / `quotaExceeded` raises `QuotaExhaustedError` and the command exits 2 — retrying cannot help.
+- **Retries.** Rate limits are 429 or 403 `rateLimitExceeded` / `userRateLimitExceeded`. `_retry_delay` honors `Retry-After` (capped at 300 s), else backs off 5→80 s (rate limit) or 1→10 s (5xx) with jitter. Throttled items are re-sent in batches of `RETRY_BATCH_SIZE = 10`.
 - **Only idempotent calls retry** (`list`, `get`, `modify`, `batchModify`). `send` and `create` are single-shot so a retry can never duplicate an email or a filter.
 - **Throttles are remembered** in `rate_limit_<email>.json`; `autopilot` skips its run until that time passes.
 - **Counts come from `labels.get(INBOX)`** (1 unit), never from paging message IDs.
