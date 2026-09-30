@@ -45,19 +45,25 @@ UNSUB_USER_AGENT = 'Mozilla/5.0 (compatible; gmail-cli-unsubscribe/1.0)'
 # Repository root — used for all Path(__file__) references since module moved deeper
 _REPO_ROOT = Path(__file__).parent.parent
 
-# Configurable lists live in lists/*.yaml. Users edit them without touching code.
-LISTS_DIR = _REPO_ROOT / 'lists'
+# Packaged seed lists ship inside the package (gmail_cleanup/lists/*.yaml).
+# Per-user lists — and everything the tool writes — live in ~/.gmail_cli/lists/.
+LISTS_DIR = Path(__file__).parent / 'lists'
+
+
+def user_lists_dir() -> Path:
+    """Per-user lists directory. Resolved per call so tests can swap HOME."""
+    return Path.home() / '.gmail_cli' / 'lists'
 
 
 def _load_list(name: str) -> list[str]:
-    """Load a YAML list file from lists/. Returns [] if missing.
+    """Load a YAML list by name. Returns [] if missing.
 
     Raises ValueError if the file exists but isn't a top-level YAML list.
     User lists from ~/.gmail_cli/lists/<name>.yaml (if present) are merged
-    with repo lists, de-duplicated (repo entries first, user entries second).
+    with the packaged seed, de-duplicated (seed entries first, user entries second).
     """
     repo_path = LISTS_DIR / f'{name}.yaml'
-    user_path = Path.home() / '.gmail_cli' / 'lists' / f'{name}.yaml'
+    user_path = user_lists_dir() / f'{name}.yaml'
 
     repo_list = []
     if repo_path.exists():
@@ -734,9 +740,9 @@ def cmd_unsubscribe(args):
         try:
             added = append_to_unsubbed(newly_unsubbed)
             if added:
-                print(f"\n📝 Added {len(added)} sender(s) to lists/unsubbed.yaml")
+                print(f"\n📝 Added {len(added)} sender(s) to ~/.gmail_cli/lists/unsubbed.yaml")
         except (OSError, ValueError) as e:
-            print(f"\n⚠️  Could not update lists/unsubbed.yaml: {e}")
+            print(f"\n⚠️  Could not update ~/.gmail_cli/lists/unsubbed.yaml: {e}")
 
     if results['unsubscribed'] or results['archived']:
         from gmail_cleanup.state import append_event

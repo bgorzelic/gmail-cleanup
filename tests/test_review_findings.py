@@ -32,6 +32,7 @@ def isolated_lists(monkeypatch, tmp_path, request):
     lists_dir = tmp_path / 'lists'
     lists_dir.mkdir()
     monkeypatch.setattr(gmail_cli, 'LISTS_DIR', lists_dir)
+    monkeypatch.setattr(gmail_cli, 'user_lists_dir', lambda: lists_dir)
 
     def still_isolated():
         if Path(gmail_cli.LISTS_DIR) != lists_dir:

@@ -1,0 +1,12 @@
+# Previously-unsubscribed senders.
+#
+# Used by the `previously-unsubscribed → 💬 Notifications + archive` Gmail
+# filter — if any of these senders try to resurrect (a re-marketing campaign,
+# a new list signup, account creation, etc.), their mail skips inbox.
+#
+# The `verify` subcommand checks the current inbox against this list and
+# flags any sender still arriving as a stuck unsubscribe.
+
+#
+# Your entries live in ~/.gmail_cli/lists/unsubbed.yaml — this packaged seed is empty.
+[]

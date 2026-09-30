@@ -5,7 +5,16 @@ shielded from auto-unsubscribe. If this regresses, the tool could silently
 unsubscribe a user from their bank's fraud alerts.
 """
 
+import yaml
+
 import gmail_cleanup as gmail_cli
+
+# The packaged seed — what every fresh install gets. Loaded directly so the
+# result never depends on the developer's own ~/.gmail_cli/lists/keep.yaml.
+SEED_KEEP_LIST = [
+    str(x).strip()
+    for x in yaml.safe_load((gmail_cli.LISTS_DIR / 'keep.yaml').read_text())
+]
 
 
 def _is_protected(sender: str) -> bool:
@@ -14,7 +23,7 @@ def _is_protected(sender: str) -> bool:
     Kept in sync with the substring-match in gmail_cli.cmd_unsubscribe at the
     `keep_hit = next(...)` line. If that logic changes, this helper must update.
     """
-    return any(k in sender for k in gmail_cli.UNSUB_KEEP_LIST)
+    return any(k in sender for k in SEED_KEEP_LIST)
 
 
 class TestKeepListShieldsCriticalSenders:
@@ -76,17 +85,16 @@ class TestKeepListDoesNotOverShield:
         assert not _is_protected('mollysoshea@substack.com')
 
 
-class TestUnsubbedSendersAllProtectedFromResurrection:
-    """Every sender in unsubbed.yaml should be route-able via the filter preset.
+class TestPackagedSeedsShipNoPersonalData:
+    """The wheel ships gmail_cleanup/lists/. Only keep.yaml may carry entries.
 
-    The preset filter `from: <unsubbed senders OR'd>` matches against the
-    sender header. We just need to verify the list isn't empty and entries
-    look like email addresses.
+    humans/kill/unsubbed are personal; they belong in ~/.gmail_cli/lists/.
     """
 
-    def test_list_is_nonempty(self):
-        assert len(gmail_cli.UNSUBBED_SENDERS) > 0
+    def test_keep_seed_is_nonempty(self):
+        assert len(SEED_KEEP_LIST) > 0
 
-    def test_entries_look_like_emails(self):
-        for entry in gmail_cli.UNSUBBED_SENDERS:
-            assert '@' in entry, f"unsubbed entry doesn't look like an email: {entry!r}"
+    def test_personal_seeds_are_empty(self):
+        for name in ('humans', 'kill', 'unsubbed'):
+            data = yaml.safe_load((gmail_cli.LISTS_DIR / f'{name}.yaml').read_text())
+            assert data in (None, []), f'{name}.yaml seed must ship empty'
