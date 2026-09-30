@@ -39,6 +39,11 @@ SCOPES = [
     'https://www.googleapis.com/auth/gmail.settings.basic',
 ]
 
+# Retries for idempotent Gmail API calls (list/get/modify). googleapiclient backs
+# off exponentially on 429 rate limits and 5xx errors. Non-idempotent calls
+# (send, create) are deliberately not retried, so a retry can't duplicate them.
+API_RETRIES = 5
+
 # HTTP request settings for unsubscribe link execution
 UNSUB_HTTP_TIMEOUT = 5  # seconds
 UNSUB_USER_AGENT = 'Mozilla/5.0 (compatible; gmail-cli-unsubscribe/1.0)'
@@ -212,7 +217,7 @@ class GmailCLI:
     def get_labels(self) -> list[dict[str, Any]]:
         """Get all Gmail labels"""
         try:
-            results = self.service.users().labels().list(userId='me').execute()
+            results = self.service.users().labels().list(userId='me').execute(num_retries=API_RETRIES)
             return results.get('labels', [])
         except HttpError as error:
             print(f"❌ Error fetching labels: {error}")
@@ -229,7 +234,7 @@ class GmailCLI:
             )
 
             while request and len(messages) < max_results:
-                response = request.execute()
+                response = request.execute(num_retries=API_RETRIES)
                 messages.extend(response.get('messages', []))
                 request = self.service.users().messages().list_next(request, response)
 
@@ -248,7 +253,7 @@ class GmailCLI:
                 userId='me',
                 id=message_id,
                 format=format
-            ).execute()
+            ).execute(num_retries=API_RETRIES)
         except HttpError as error:
             print(f"❌ Error fetching message {message_id}: {error}")
             return None
@@ -275,7 +280,7 @@ class GmailCLI:
                 userId='me',
                 id=message_id,
                 body=body
-            ).execute()
+            ).execute(num_retries=API_RETRIES)
         except HttpError as error:
             print(f"❌ Error modifying message {message_id}: {error}")
 
@@ -292,7 +297,7 @@ class GmailCLI:
             self.service.users().messages().batchModify(
                 userId='me',
                 body=body
-            ).execute()
+            ).execute(num_retries=API_RETRIES)
         except HttpError as error:
             print(f"❌ Error batch modifying messages: {error}")
 
@@ -373,8 +378,12 @@ def cmd_status(args):
     console = Console()
 
     # Live counts
-    inbox_n = len(gmail.search_messages('in:inbox', max_results=10000))
-    unread_n = len(gmail.search_messages('is:unread', max_results=10000))
+    # One labels.get call; conversation counts match what Gmail's UI shows.
+    inbox = gmail.service.users().labels().get(
+        userId='me', id='INBOX'
+    ).execute(num_retries=API_RETRIES)
+    inbox_n = f"{inbox.get('threadsTotal', 0):,}"
+    unread_n = f"{inbox.get('threadsUnread', 0):,}"
 
     # Lists
     list_counts = {
@@ -404,7 +413,7 @@ def cmd_status(args):
 
     console.print()
     console.print(f"[bold]gmail-cleanup status[/bold] — {args.email}\n")
-    console.print(f"📥 Inbox: [cyan]{inbox_n}[/cyan]   📬 Unread: [cyan]{unread_n}[/cyan]")
+    console.print(f"📥 Inbox: [cyan]{inbox_n}[/cyan] conversations   📬 Unread in inbox: [cyan]{unread_n}[/cyan]")
     console.print(f"🛡  Filters active: [cyan]{filters_n}[/cyan]")
     console.print(f"📋 Lists: [cyan]{list_counts['kill']}[/cyan] kill · "
                   f"[cyan]{list_counts['keep']}[/cyan] keep · "
@@ -895,7 +904,7 @@ def _upgrade_existing_filters(
 def _list_filters(gmail: 'GmailCLI') -> list[dict[str, Any]]:
     """List all existing Gmail filters."""
     try:
-        resp = gmail.service.users().settings().filters().list(userId='me').execute()
+        resp = gmail.service.users().settings().filters().list(userId='me').execute(num_retries=API_RETRIES)
         return resp.get('filter', [])
     except HttpError as e:
         print(f"❌ Error listing filters: {e}")
