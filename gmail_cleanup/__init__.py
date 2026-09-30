@@ -8,6 +8,7 @@ Uses OAuth credentials to access Gmail API directly.
 
 import argparse
 import base64
+import io
 import os
 import pickle
 import re
@@ -1201,18 +1202,70 @@ def cmd_verify(args):
     print(f"   Failed:                {failed}")
 
 
+class _Tee:
+    """Write-through stdout wrapper that also records everything written."""
+
+    def __init__(self, stream):
+        self._stream = stream
+        self.buffer = io.StringIO()
+
+    def write(self, text: str) -> int:
+        self.buffer.write(text)
+        return self._stream.write(text)
+
+    def flush(self) -> None:
+        self._stream.flush()
+
+    def isatty(self) -> bool:
+        # Keep live progress redraws out of the recorded report.
+        return False
+
+
+_ANSI_RE = re.compile(r'\x1b\[[0-9;?]*[A-Za-z]')
+
+
+def _email_report_to_self(gmail_email: str, report: str, dry_run: bool) -> None:
+    """Send the captured autopilot report to the account owner. Never raises."""
+    subject = f"gmail-cleanup autopilot{' (dry run)' if dry_run else ''} — {gmail_email}"
+    try:
+        sent = GmailCLI(gmail_email).send_message(gmail_email, subject, _ANSI_RE.sub('', report))
+    except Exception as exc:  # a report email must not fail a finished run
+        print(f"⚠️  Could not email the autopilot report: {type(exc).__name__}")
+        return
+    if sent:
+        print(f"📧 Report emailed to {gmail_email}")
+
+
 def cmd_autopilot(args):
     """Run the full safe-by-default cleanup workflow in one shot.
 
     Sequence:
       1. filters apply       → upgrade existing + create preset (idempotent)
-      2. unsubscribe         → kill noise from the last 30 days, min-count 2
+      2. unsubscribe         → kill noise from the last --days days (default 30),
+                               senders with at least --min-count messages (default 2)
       3. mark-read           → clear the archived-but-unread backlog
       4. verify              → check stickiness; optionally escalate stuck senders
 
-    Safe to run repeatedly. Use --dry-run to preview without taking action.
+    Safe to run repeatedly. Use --dry-run to preview without taking action, and
+    --email-summary to have the report emailed to the account itself.
     """
+    if not getattr(args, 'email_summary', False):
+        _run_autopilot(args)
+        return
+    tee = _Tee(sys.stdout)
+    real_stdout, sys.stdout = sys.stdout, tee
+    try:
+        _run_autopilot(args)
+    finally:
+        sys.stdout = real_stdout
+    _email_report_to_self(args.email, tee.buffer.getvalue(), args.dry_run)
+
+
+def _run_autopilot(args):
     from argparse import Namespace
+
+    days = getattr(args, 'days', 30)
+    min_count = getattr(args, 'min_count', 2)
 
     print("🤖 gmail-cleanup autopilot — full inbox cleanup\n")
     print("=" * 72)
@@ -1224,11 +1277,12 @@ def cmd_autopilot(args):
         dry_run=args.dry_run,
     ))
 
-    print("\n━━━ Phase 2/4: Unsubscribe noise senders (last 30d, min-count 2) ━━━\n")
+    print(f"\n━━━ Phase 2/4: Unsubscribe noise senders (last {days}d, "
+          f"min-count {min_count}) ━━━\n")
     cmd_unsubscribe(Namespace(
         email=args.email,
-        days=30,
-        min_count=2,
+        days=days,
+        min_count=min_count,
         limit=2000,
         dry_run=args.dry_run,
         no_archive=False,
@@ -1256,6 +1310,7 @@ def cmd_autopilot(args):
         since=None,
         limit=100,
         escalate=args.escalate,
+        grace_days=VERIFY_GRACE_DAYS,
     ))
 
     print("\n" + "=" * 72)
@@ -1613,6 +1668,14 @@ Examples:
                              help='In phase 4, auto-create block filters for stuck senders')
     parser_auto.add_argument('--all-accounts', action='store_true',
                              help='Run for every configured account')
+    parser_auto.add_argument('--days', type=int, default=30,
+                             help='Unsubscribe phase: look back N days (default: 30)')
+    parser_auto.add_argument('--min-count', type=int, default=2,
+                             help='Unsubscribe phase: min messages per sender (default: 2; '
+                                  'kill-list senders always qualify)')
+    parser_auto.add_argument('--email-summary', action='store_true',
+                             help="Email this run's report to the account itself "
+                                  '(pairs well with --dry-run for a daily preview)')
     parser_auto.set_defaults(func=cmd_autopilot)
 
     # Stats command
