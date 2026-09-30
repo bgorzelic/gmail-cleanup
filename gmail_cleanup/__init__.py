@@ -46,10 +46,15 @@ SCOPES = [
 # (send, create) are deliberately not retried, so a retry can't duplicate them.
 API_RETRIES = 5
 
-# Batched metadata fetches: 50 messages.get per HTTP batch (Google's recommended
-# ceiling), at most one batch per second = 250 quota units/s, Gmail's per-user rate.
+# Batched metadata fetches, paced to Gmail's documented per-user quota
+# (developers.google.com/workspace/gmail/api/reference/quota, checked 2026-09-30):
+# 6,000 units/min per user = 100 units/s, and messages.get costs 20 units, so
+# 5 fetches/s. A batch of 50 (Google's recommended ceiling) therefore starts at
+# most every 10 s. Batching saves round-trips, not quota.
+QUOTA_UNITS_PER_SEC = 100
+MESSAGES_GET_UNITS = 20
 BATCH_SIZE = 50
-BATCH_INTERVAL = 1.0
+BATCH_INTERVAL = BATCH_SIZE * MESSAGES_GET_UNITS / QUOTA_UNITS_PER_SEC
 _RETRYABLE_STATUS = {429, 500, 502, 503, 504}
 
 
@@ -291,6 +296,7 @@ class GmailCLI:
         results: dict[str, dict[str, Any]] = {}
         pending = list(message_ids)
         last_start = 0.0
+        throttled = 0
         for attempt in range(API_RETRIES + 1):
             retry: list[str] = []
 
@@ -326,8 +332,11 @@ class GmailCLI:
             pending = retry
             if not pending:
                 break
+            throttled += len(pending)
             time.sleep(min(2 ** (attempt + 1), 32))
 
+        if throttled:
+            print(f"⏱  {throttled:,} rate-limited/5xx response(s) retried with backoff")
         failed = len(message_ids) - len(results)
         if failed:
             print(f"⚠️  {failed:,} message(s) could not be fetched and were skipped")
@@ -725,7 +734,11 @@ def cmd_unsubscribe(args):
     # MINUS anything matching the KEEP list (financial / healthcare / etc.).
     targets_to_process = []  # list of (sender, count, list_unsub_header, list_unsub_post_header)
     keep_skipped = []  # senders excluded by the KEEP list, for reporting
+    humans = {h.lower() for h in HUMANS_WHITELIST}
     for sender, msg_ids in sender_msgs.items():
+        # Real people always win, over the kill list too. Exact match (humans.yaml).
+        if sender.lower() in humans:
+            continue
         in_killlist = any(killed in sender for killed in VETTED_KILL_LIST)
         meets_threshold = len(msg_ids) >= args.min_count
         if not (in_killlist or meets_threshold):
@@ -852,11 +865,6 @@ def cmd_unsubscribe(args):
     print("=" * 50)
 
 
-def _humans_exclusion() -> str:
-    """Gmail search fragment that excludes the human whitelist."""
-    return '-from:(' + ' OR '.join(HUMANS_WHITELIST) + ')'
-
-
 def _find_label_id(gmail: 'GmailCLI', name: str) -> str | None:
     """Find an existing label by exact name. Returns None if not found."""
     for L in gmail.get_labels():
@@ -869,26 +877,22 @@ def _build_filter_preset(gmail: 'GmailCLI') -> list[dict[str, Any]]:
     """Build the new filter set (in addition to upgrading existing filters).
 
     Uses the user's existing label taxonomy where possible. Returns Gmail API
-    filter dicts: {name, criteria, action}.
+    filter dicts: {name, criteria, action}. A filter whose list is empty is left
+    out — Gmail rejects an empty `from:` criterion.
+
+    There is no newsletter catch-all: Gmail search has no operator for the
+    List-Unsubscribe header (`has:list` matches nothing), so that job belongs to
+    the header-based `unsubscribe` command.
     """
-    label_newsletters = _find_label_id(gmail, '📧 Newsletters') or gmail.create_label('📧 Newsletters')
     label_notifications = _find_label_id(gmail, '💬 Notifications') or gmail.create_label('💬 Notifications')
 
-    return [
+    preset = [
         {
             'name': 'whitelist-humans (star + important + protect from spam)',
             'criteria': {'from': ' OR '.join(HUMANS_WHITELIST)},
             'action': {
                 'addLabelIds': ['STARRED', 'IMPORTANT'],
                 'removeLabelIds': ['SPAM'],
-            },
-        },
-        {
-            'name': 'has:list catch-all → 📧 Newsletters + archive + read',
-            'criteria': {'query': 'has:list ' + _humans_exclusion()},
-            'action': {
-                'addLabelIds': [label_newsletters],
-                'removeLabelIds': ['INBOX', 'UNREAD'],
             },
         },
         {
@@ -908,6 +912,7 @@ def _build_filter_preset(gmail: 'GmailCLI') -> list[dict[str, Any]]:
             },
         },
     ]
+    return [f for f in preset if f['criteria']['from']]
 
 
 # Filter actions that mean "this is a protect/route filter, leave alone"
@@ -1071,7 +1076,7 @@ def cmd_filters(args):
     upgraded, skipped_existing = _upgrade_existing_filters(gmail, dry_run=args.dry_run)
     print(f"  → {upgraded} upgraded, {skipped_existing} unchanged\n")
 
-    print("🏗  Step 2: Build new filter preset (humans / has:list / unsubbed / killlist)\n")
+    print("🏗  Step 2: Build new filter preset (humans / unsubbed / killlist)\n")
     preset = _build_filter_preset(gmail)
 
     # Re-fetch existing filters after upgrade for dedup.

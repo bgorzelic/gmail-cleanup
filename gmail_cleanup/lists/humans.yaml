@@ -5,9 +5,9 @@
 #   - marked important
 #   - shielded from spam folder
 #
-# They are also excluded from the `has:list` newsletter catch-all so a real
-# person's mail never gets auto-archived if it happens to carry a List-Unsubscribe
-# header (some mailing-list-like personal newsletters do).
+# The unsubscribe command never unsubscribes or archives them — even if their
+# mail carries a List-Unsubscribe header (some personal newsletters do) and even
+# if they also match kill.yaml.
 
 #
 # Your entries live in ~/.gmail_cli/lists/humans.yaml — this packaged seed is empty.

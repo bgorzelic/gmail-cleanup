@@ -152,7 +152,7 @@ Four YAML lists govern behavior. Each one is the packaged seed (shipped inside t
 |---|---|---|---|---|
 | [`keep.yaml`](gmail_cleanup/lists/keep.yaml) | `unsubscribe` | Substring | Populated | If sender matches, the unsubscribe is **refused**. Banks, healthcare, .gov, security senders. |
 | [`kill.yaml`](gmail_cleanup/lists/kill.yaml) | `unsubscribe`, `filters apply` | Substring | Empty | Forces unsubscribe + archive regardless of message-count threshold |
-| [`humans.yaml`](gmail_cleanup/lists/humans.yaml) | `filters apply` | Exact email | Empty | Star + mark important + spam-protect. Excluded from `has:list` catch-all |
+| [`humans.yaml`](gmail_cleanup/lists/humans.yaml) | `filters apply` | Exact email | Empty | Star + mark important + spam-protect. |
 | [`unsubbed.yaml`](gmail_cleanup/lists/unsubbed.yaml) | `filters apply`, `verify` | Exact email | Empty | Anti-resurrection — auto-archive if a previously-unsubscribed sender tries to come back. Written automatically after each successful unsubscribe. |
 
 The unsubscribe flow prefers RFC 8058 one-click POST (the standard Gmail/Apple now require for bulk senders). Falls back to GET, then mailto. Senders without any `List-Unsubscribe` header are skipped, not silently archived — that's a guard against accidentally archiving a real person.

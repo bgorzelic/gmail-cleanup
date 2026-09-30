@@ -98,3 +98,43 @@ class TestPackagedSeedsShipNoPersonalData:
         for name in ('humans', 'kill', 'unsubbed'):
             data = yaml.safe_load((gmail_cli.LISTS_DIR / f'{name}.yaml').read_text())
             assert data in (None, []), f'{name}.yaml seed must ship empty'
+
+
+class TestHumansNeverUnsubscribed:
+    """humans.yaml always wins: a real person is never unsubscribed or archived,
+    even with a List-Unsubscribe header and even when kill.yaml also matches."""
+
+    def _run(self, monkeypatch, capsys):
+        from argparse import Namespace
+        from unittest.mock import MagicMock
+
+        def msg(sender):
+            return {'payload': {'headers': [
+                {'name': 'From', 'value': f'Someone <{sender}>'},
+                {'name': 'List-Unsubscribe', 'value': '<https://example.com/u>'},
+                {'name': 'List-Unsubscribe-Post', 'value': 'List-Unsubscribe=One-Click'},
+            ]}}
+
+        senders = ['Friend@Example.org'] * 3 + ['promo@shop.example'] * 3
+        ids = [str(i) for i in range(len(senders))]
+        gmail = MagicMock()
+        gmail.search_messages.return_value = [{'id': i} for i in ids]
+        gmail.get_messages_metadata.return_value = {
+            i: msg(s.lower()) for i, s in zip(ids, senders, strict=True)
+        }
+        gmail.get_header.side_effect = gmail_cli.GmailCLI.get_header.__get__(gmail)
+        monkeypatch.setattr(gmail_cli, 'GmailCLI', lambda email: gmail)
+        monkeypatch.setattr(gmail_cli, 'HUMANS_WHITELIST', ['friend@example.org'])
+        monkeypatch.setattr(gmail_cli, 'VETTED_KILL_LIST', ['example.org'])
+        monkeypatch.setattr(gmail_cli, 'UNSUB_KEEP_LIST', [])
+        gmail_cli.cmd_unsubscribe(Namespace(
+            email='me@example.com', days=30, min_count=2, limit=100,
+            dry_run=True, no_archive=False, delete=False,
+        ))
+        return capsys.readouterr().out
+
+    def test_human_is_not_targeted(self, monkeypatch, capsys):
+        out = self._run(monkeypatch, capsys)
+        assert 'friend@example.org' not in out.split('Protected by KEEP')[-1].lower()
+        assert 'promo@shop.example' in out
+        assert 'Total: 1 senders' in out
