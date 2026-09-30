@@ -52,11 +52,13 @@ API_RETRIES = 5
 # Batched metadata fetches, paced to Gmail's documented per-user quota
 # (developers.google.com/workspace/gmail/api/reference/quota, checked 2026-09-30):
 # 6,000 units/min per user = 100 units/s, and messages.get costs 20 units, so
-# 5 fetches/s. A batch of 50 (Google's recommended ceiling) therefore starts at
-# most every 10 s. Batching saves round-trips, not quota.
+# 5 fetches/s. Batching saves round-trips, not quota. Batches are 25, not the
+# documented ceiling of 50: every sub-request counts against per-user
+# concurrency, and a live 3,070-message scan at 50/10 s had 342 throttled
+# (2026-09-30). 25 every 5 s is the same unit rate in smaller bursts.
 QUOTA_UNITS_PER_SEC = 100
 MESSAGES_GET_UNITS = 20
-BATCH_SIZE = 50
+BATCH_SIZE = 25
 BATCH_INTERVAL = BATCH_SIZE * MESSAGES_GET_UNITS / QUOTA_UNITS_PER_SEC
 # Rate-limited items are re-sent in smaller batches: Gmail counts every
 # sub-request of a batch against the per-user limit.

@@ -80,14 +80,14 @@ def _batching_client(monkeypatch, responder):
     return _client(service), log
 
 
-def test_metadata_fetch_batches_in_chunks_of_50(monkeypatch):
+def test_metadata_fetch_batches_in_chunks(monkeypatch):
     gmail, log = _batching_client(monkeypatch, lambda mid: ({'id': mid}, None))
-    ids = [str(i) for i in range(120)]
+    ids = [str(i) for i in range(60)]
     ticks = []
     result = gmail.get_messages_metadata(ids, ['From'], on_progress=lambda: ticks.append(1))
-    assert [len(b) for b in log] == [50, 50, 20]
+    assert [len(b) for b in log] == [25, 25, 10]
     assert set(result) == set(ids)
-    assert len(ticks) == 120
+    assert len(ticks) == 60
 
 
 def test_rate_limited_messages_are_retried(monkeypatch):
