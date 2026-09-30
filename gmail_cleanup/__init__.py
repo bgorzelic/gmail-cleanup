@@ -1099,31 +1099,67 @@ def cmd_accounts(args):
         return
 
 
+# Google's bulk-sender rules give senders 2 days to honor an unsubscribe.
+# Mail inside that grace period is not evidence the unsubscribe failed.
+VERIFY_GRACE_DAYS = 2
+
+
+def _verify_query(
+    sender: str,
+    unsubscribed_at: datetime | None,
+    window_start: datetime,
+    now: datetime,
+    grace_days: int = VERIFY_GRACE_DAYS,
+) -> str | None:
+    """Gmail query counting a sender's mail that proves an unsubscribe did not stick.
+
+    Timestamped entries only count mail after unsubscribed_at + grace, so mail sent
+    before the unsubscribe (or while the sender was still processing it) is ignored.
+    Returns None while the grace period is still running — too early to judge.
+    Legacy entries without a timestamp fall back to the plain window.
+    """
+    start = window_start
+    if unsubscribed_at is not None:
+        judged_from = unsubscribed_at + timedelta(days=grace_days)
+        if judged_from > now:
+            return None
+        start = max(start, judged_from)
+    return f'from:{sender} after:{int(start.timestamp())}'
+
+
 def cmd_verify(args):
     """Verify previously-unsubscribed senders are silent. Optionally escalate."""
-    gmail = GmailCLI(args.email)
+    from gmail_cleanup.lists_io import load_unsubbed_entries
 
-    if not UNSUBBED_SENDERS:
-        print("ℹ️  lists/unsubbed.yaml is empty — nothing to verify.")
+    entries = load_unsubbed_entries()
+    if not entries:
+        print("ℹ️  No unsubscribed senders recorded yet — nothing to verify.")
         return
+
+    gmail = GmailCLI(args.email)
+    now = datetime.now(UTC)
+    grace_days = getattr(args, 'grace_days', VERIFY_GRACE_DAYS)
 
     # --since wins over --days for precision (counts only mail arrived after that date).
     if args.since:
-        window = f'after:{args.since.replace("-", "/")}'
+        window_start = datetime.strptime(args.since, '%Y-%m-%d').astimezone(UTC)
         window_desc = f"since {args.since}"
     else:
-        window = f'newer_than:{args.days}d'
+        window_start = now - timedelta(days=args.days)
         window_desc = f"the last {args.days} days"
 
-    print(f"🔍 Verifying {len(UNSUBBED_SENDERS)} previously-unsubscribed senders "
-          f"against {window_desc}...\n")
+    print(f"🔍 Verifying {len(entries)} previously-unsubscribed senders "
+          f"against {window_desc} (ignoring mail within {grace_days}d of each unsubscribe)...\n")
 
     stuck = []  # (sender, count)
     silent = []
-    for sender in UNSUBBED_SENDERS:
-        query = f'from:{sender} {window}'
-        messages = gmail.search_messages(query, max_results=args.limit)
-        count = len(messages)
+    pending = []
+    for sender, unsubscribed_at in entries:
+        query = _verify_query(sender, unsubscribed_at, window_start, now, grace_days)
+        if query is None:
+            pending.append(sender)
+            continue
+        count = len(gmail.search_messages(query, max_results=args.limit))
         if count > 0:
             stuck.append((sender, count))
         else:
@@ -1133,11 +1169,14 @@ def cmd_verify(args):
     stuck.sort(key=lambda t: t[1], reverse=True)
 
     if stuck:
-        print(f"❌ STUCK — {len(stuck)} senders still arriving:")
+        print(f"❌ STUCK — {len(stuck)} senders still arriving after unsubscribing:")
         for sender, count in stuck:
             print(f"   {count:>4}  {sender}")
         print()
-    print(f"✅ SILENT — {len(silent)} unsubscribes appear to have stuck.")
+    print(f"✅ SILENT  — {len(silent)} unsubscribes appear to have stuck.")
+    if pending:
+        print(f"⏳ PENDING — {len(pending)} unsubscribed within the last {grace_days}d; "
+              "checked on a later run.")
 
     if not stuck:
         return
@@ -1654,6 +1693,9 @@ Examples:
                                help='Max messages to count per sender (default: 100)')
     parser_verify.add_argument('--escalate', action='store_true',
                                help='Auto-create a block filter (auto-trash) for each stuck sender')
+    parser_verify.add_argument('--grace-days', type=int, default=VERIFY_GRACE_DAYS,
+                               help='Ignore mail within N days after each unsubscribe '
+                                    f'(default: {VERIFY_GRACE_DAYS})')
     parser_verify.add_argument('--all-accounts', action='store_true',
                                help='Run for every configured account')
     parser_verify.set_defaults(func=cmd_verify)
