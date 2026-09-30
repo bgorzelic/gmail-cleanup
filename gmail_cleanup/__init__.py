@@ -987,6 +987,36 @@ def _upgrade_existing_filters(
     return upgraded, skipped
 
 
+def _from_set(criteria: dict[str, Any]) -> set[str]:
+    """Senders in a filter's `from` criterion (`a OR b OR c`), lowercased."""
+    return {s.strip().lower() for s in criteria.get('from', '').split(' OR ') if s.strip()}
+
+
+def _superseded_filters(
+    new: dict[str, Any], existing: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Existing filters that `new` fully replaces.
+
+    A filter is superseded only when it is a pure `from:` filter with exactly the
+    same action and every one of its senders is in `new` — so deleting it after
+    `new` is created loses no coverage. This stops a growing list (unsubbed,
+    kill) from stacking one longer filter per run.
+    """
+    def action_key(action: dict[str, Any]) -> tuple[frozenset, frozenset]:
+        return (frozenset(action.get('addLabelIds', [])),
+                frozenset(action.get('removeLabelIds', [])))
+
+    new_senders = _from_set(new['criteria'])
+    out = []
+    for f in existing:
+        crit = f.get('criteria', {})
+        if set(crit) != {'from'} or action_key(f.get('action', {})) != action_key(new['action']):
+            continue
+        if _from_set(crit) < new_senders:
+            out.append(f)
+    return out
+
+
 def _list_filters(gmail: 'GmailCLI') -> list[dict[str, Any]]:
     """List all existing Gmail filters."""
     try:
@@ -1091,7 +1121,11 @@ def cmd_filters(args):
         print("📋 Filters that would be created:\n")
         for i, f in enumerate(preset, 1):
             key = (f['criteria'].get('from', ''), f['criteria'].get('query', ''))
-            status = '(SKIP — already exists)' if key in existing_keys else '(NEW)'
+            if key in existing_keys:
+                status = '(SKIP — already exists)'
+            else:
+                replaces = len(_superseded_filters(f, existing))
+                status = f'(NEW, replaces {replaces} older)' if replaces else '(NEW)'
             print(f"{i}. {f['name']} {status}")
             if f['criteria'].get('from'):
                 print(f"   from:    {f['criteria']['from'][:120]}")
@@ -1104,6 +1138,7 @@ def cmd_filters(args):
         return
 
     created = 0
+    replaced = 0
     skipped_preset = 0
     failed = 0
     for i, f in enumerate(preset, 1):
@@ -1122,10 +1157,23 @@ def cmd_filters(args):
         except HttpError as e:
             print(f"[{i}/{len(preset)}] {f['name']}: ❌ failed — {e}")
             failed += 1
+            continue
+        # Only after the new filter exists: drop older ones it fully covers.
+        for old in _superseded_filters(f, existing):
+            try:
+                gmail.service.users().settings().filters().delete(
+                    userId='me', id=old['id'],
+                ).execute()
+                print(f"      ↳ removed superseded filter {old['id']} "
+                      f"({len(_from_set(old['criteria']))} senders, all covered)")
+                replaced += 1
+            except HttpError as e:
+                print(f"      ↳ could not remove superseded filter {old['id']}: {e}")
 
     print("\n📊 Summary:")
     print(f"   Existing upgraded:  {upgraded}")
     print(f"   New created:        {created}")
+    print(f"   Superseded removed: {replaced}")
     print(f"   Skipped (dup):      {skipped_preset}")
     print(f"   Failed:             {failed}")
 
