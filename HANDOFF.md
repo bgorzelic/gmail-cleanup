@@ -1,50 +1,69 @@
 # HANDOFF
 
-**Last updated:** 2026-05-24
+**Last updated:** 2026-09-30
 **Account under test:** bgorzelic@gmail.com
-**Tool version:** v0.5.2
+**Tool version:** v0.6.0 — on PyPI as [`gmail-inbox-cleanup`](https://pypi.org/project/gmail-inbox-cleanup/)
 **Repo status:** Public — github.com/bgorzelic/gmail-cleanup
 
 ## What this is
 
 `gmail-cleanup` — a safety-first CLI for reclaiming a Gmail inbox.
-Working prototype + productized OSS tool. See [`README.md`](README.md).
+Install: `pipx install gmail-inbox-cleanup` (the command is `gmail-cleanup`). See [`README.md`](README.md).
 
 ## Current state
 
-- **Inbox:** 47 emails (humans + drafts only)
-- **Filters in Gmail:** 34 active (15 prior + 19 new block filters from escalation)
-- **Unsubscribed senders to date:** 146 (20 on 2026-05-14 + 25 on Day-2 backfill + 101 on 2026-05-24)
-- **Verification debt:** 0 known stuck (all 19 from the 2026-05-14 cohort that didn't stick are now hard-blocked via filters)
+- **Inbox:** 520 conversations, 328 unread (was 3,933 / 3,516 at the start of 2026-09-30)
+- **Filters in Gmail:** 31 active
+- **Unsubscribed senders on record:** 352 (`~/.gmail_cli/lists/unsubbed.yaml`) — 121 legacy entries without timestamps + 231 added 2026-09-30 with `unsubscribed_at`
+- **Verification:** 114 silent, 231 pending (inside the 2-day grace period), 7 stuck — no block filters created yet
+- **Personal state lives in `~/.gmail_cli/`**, not the repo: lists, OAuth client, token, `backups/`
 
-## Last session (2026-05-24)
+## Last session (2026-09-30)
 
-Full autopilot run + aggressive override sweep. Inbox went 570 → 47 (−92%, −26 MB).
+Shipped v0.6.0 and cleaned the inbox with it.
 
-- **Autopilot --escalate.** Phase 2 unsubscribed 101 new senders (293 messages archived, 0 failures). Phase 4 discovered **19 of the 20** 2026-05-14 unsubs never actually stuck — block filters auto-created for all of them. Auto-close-the-loop appended the new cohort to `lists/unsubbed.yaml`, committed and pushed.
-- **Aggressive override.** Re-applied the 2026-05-14 "keep only obvious humans" pattern: archived all 236 remaining inbox messages except the protected senders list. Marked 213 unread-archived as read.
-- **Keep-list update.** Added pyramidci.com humans (`manish.giri`, `yamini1`) to memory `project_correspondence_keep_list.md`. `noreply3@pyramidci.com` is noted as automated → not protected.
-- **Memory hygiene.** Updated `project_unsubscribe_log.md` with today's run and the critical lesson: List-Unsubscribe POST 200 OK ≠ actual unsubscribe.
+**Release**
+- First PyPI release, renamed to `gmail-inbox-cleanup` (`gmail-cleanup` on PyPI is an unrelated abandoned package).
+- PR #3 merged to `main`; tag `v0.6.0`; GitHub Release triggers `.github/workflows/publish.yml` (PyPI trusted publishing, environment `pypi`). Verified by installing from PyPI into a clean venv.
+- Also pushed 20 September commits that had only existed locally.
 
-**Commits:** `d5d1c50` data: log 2026-05-24 cleanup — +101 unsubs
+**Code (all in CHANGELOG 0.6.0)**
+- Lists split: packaged seeds in `gmail_cleanup/lists/` (only `keep.yaml` populated) merged with `~/.gmail_cli/lists/`. The tool never writes into the installed package.
+- `verify` only counts mail after `unsubscribed_at` + 2 days; pending senders are never escalated.
+- Humans always win in `unsubscribe` (this was documented but never enforced).
+- Removed the `has:list` catch-all filter — not a real Gmail operator, it matched nothing.
+- `filters apply` replaces a grown list's filter instead of stacking; skips empty lists.
+- Header scans batched (25 per request) and paced to Gmail's documented quota; `Retry-After` backoff; throttle remembered in `~/.gmail_cli/rate_limit_<email>.json`.
+- `status` matches Gmail's UI from one API call.
+- `autopilot --days / --min-count / --email-summary`, `verify --grace-days`.
+- Tests 185 → 219; `HOME` is sandboxed for the whole test session.
 
-## Key insight
+**Inbox (three live runs + one manual scrub)**
+- Autopilot, last 30 days: 163 unsubscribed, 1,021 archived.
+- `unsubscribe --days 125` (whole inbox): 191 unsubscribed, 1,105 archived.
+- Manual category scrub: archived 408 Promotions, 159 Social, 810 Updates older than 14 days. Undo manifest: `~/.gmail_cli/backups/archived-by-category-20260930-024043.json`.
+- Final autopilot on the released code: 1 unsubscribed; replaced two older unsubscribed-sender filters (20 and 121 senders) with one covering all.
+- Deleted the broken `has:list` filter (backup in `~/.gmail_cli/backups/`). Nothing was deleted from mail — archive only.
+- Added 9 personal keep entries (`~/.gmail_cli/lists/keep.yaml`) for account, finance and health senders the seed list missed.
 
-**Unsubscribe verification is non-negotiable.** 19/20 (95%) of the 2026-05-14 cohort silently failed despite returning 200 OK on the RFC 8058 POST. The verify+escalate cycle built into autopilot is the only way to actually shut these senders up — first POST, wait 7–14 days, then block-filter anything still arriving.
+## Key insights
+
+- **The May "19 of 20 unsubscribes failed" finding was probably inflated.** `verify` then counted mail sent *before* the unsubscribe. Some of those 19 block filters may be for senders that did stop.
+- **Gmail's real quota is tighter than commonly cited**: 6,000 units/min per user and `messages.get` = 20 units (not 5). Even at exactly that rate, 50-wide batches were throttled; 25-wide are not much. Google plans to bill overage later in 2026.
+- **Gmail filters cannot detect newsletters.** Only reading `List-Unsubscribe` headers can.
 
 ## Next steps
 
-1. **Schedule daily autopilot** — `gmail-cleanup schedule install --escalate` to run unattended via launchd. Inbox is clean enough that daily maintenance is now realistic.
-2. **PyPI publish** — repo is public, v0.5.2 is publish-quality. Reserve `gmail-cleanup` on PyPI and ship `0.5.2` as the first release.
-3. **Decisions still open from prior HANDOFF:**
-   - `noreply@skool.com` (166 msgs/30d in All Mail, but routed by filter, not in inbox) — keep or kill?
-   - `invitations@linkedin.com` — not yet on `lists/kill.yaml`; consider adding.
-4. **v0.6 candidates** — partial-unsubscribe reporting (which senders POST'd but kept sending), `--min-count 1` flag for autopilot, optional dry-run summary email.
+1. **Run `gmail-cleanup verify` on or after 2026-10-02** — 231 senders leave the grace period. Review the stuck list, then `verify --escalate` if it looks right. Currently stuck: LinkedIn (messages-noreply, notifications-noreply), Fox Nation, Wingstop, Mobbin, make.co, IMDb.
+2. **Schedule daily autopilot** — `gmail-cleanup schedule install --escalate` is now safe (grace period), but do step 1 by hand once first.
+3. **v0.7: incremental sync** via `history.list` so daily runs fetch only new mail (see ROADMAP "v0.7 candidates" for the full list: timestamp legacy entries on re-unsubscribe, chunk the big `from:` filter, a `scrub` command, make `stats` match `status`, seed keep-list additions).
+4. **README comparison table** — add `Gururagavendra/gmail-cleaner`, `justlinuxnoob/hush`, `elie222/inbox-zero` (AGPL — ideas only).
 
 ## Open questions
 
-- Does the user want `lists/unsubbed.yaml` to remain repo-tracked (current behavior — grows with personal cohort, useful as seed for new users) or move under `~/.gmail_cli/` as per-user state?
-- Skool decision (see above).
+- `noreply@skool.com` and `invitations@linkedin.com` are on the personal kill list; still the right call?
+- The personal `humans` / `unsubbed` lists remain in the public git history (pre-0.6 commits). Rewrite history, or accept?
+- 11 stale agent worktrees under `.worktrees/` — remove?
 
 ## Blockers
 
@@ -56,5 +75,6 @@ None.
 cd ~/dev/projects/gmail-cleanup
 source .venv/bin/activate
 gmail-cleanup --email bgorzelic@gmail.com status
-gmail-cleanup --email bgorzelic@gmail.com autopilot --escalate --dry-run
+gmail-cleanup --email bgorzelic@gmail.com verify          # after 2026-10-02
+gmail-cleanup --email bgorzelic@gmail.com autopilot --dry-run
 ```

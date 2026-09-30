@@ -53,7 +53,7 @@ CI installs `.[dev]`, runs `pytest -q` on Python 3.11, 3.12, and 3.13, and runs 
 - Use Python 3.11+ features, type hints on function signatures, `pathlib.Path`, f-strings, and `X | None` union syntax.
 - Ruff is the formatter and linter; the configured line length is 100 and the target version is Python 3.11. Do not introduce Black, isort, or Flake8.
 - Preserve the documented safety priorities: safety over speed, archive over delete, visible destructive actions, and a small feature surface.
-- Read `ARCHITECTURE.md` and its four safety invariants before changing `cmd_unsubscribe`, `gmail_cleanup/lists/*.yaml`, or `tests/test_safety.py`.
+- Read `ARCHITECTURE.md` and its six safety invariants and the Gmail API quota rules before changing `cmd_unsubscribe`, `gmail_cleanup/lists/*.yaml`, or `tests/test_safety.py`.
 - New code touching `_parse_list_unsubscribe`, `_extract_email`, KEEP-list matching, or the list loader must include tests. Test other features where practical.
 - Keep pull requests to one concern. When adding a CLI flag, update the README command table; when changing safety-critical logic, identify the test proving the behavior.
 
