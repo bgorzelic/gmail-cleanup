@@ -8,9 +8,12 @@ Uses OAuth credentials to access Gmail API directly.
 
 import argparse
 import base64
+import contextlib
 import io
+import json
 import os
 import pickle
+import random
 import re
 import sys
 import time
@@ -55,17 +58,76 @@ QUOTA_UNITS_PER_SEC = 100
 MESSAGES_GET_UNITS = 20
 BATCH_SIZE = 50
 BATCH_INTERVAL = BATCH_SIZE * MESSAGES_GET_UNITS / QUOTA_UNITS_PER_SEC
-_RETRYABLE_STATUS = {429, 500, 502, 503, 504}
+# Rate-limited items are re-sent in smaller batches: Gmail counts every
+# sub-request of a batch against the per-user limit.
+RETRY_BATCH_SIZE = 10
+_SERVER_ERROR_STATUS = {500, 502, 503, 504}
+_RATE_LIMIT_REASONS = (b'ratelimitexceeded', b'quotaexceeded')  # also matches userRateLimitExceeded
+MAX_RETRY_AFTER = 300  # seconds; never trust a server-sent wait longer than this
+
+
+def _is_rate_limit(error: Exception) -> bool:
+    """429, or a 403 whose reason is a rate/quota limit (Gmail uses both)."""
+    if not isinstance(error, HttpError):
+        return False
+    status = getattr(error.resp, 'status', None)
+    if status == 429:
+        return True
+    content = (error.content or b'').lower()
+    return status == 403 and any(reason in content for reason in _RATE_LIMIT_REASONS)
 
 
 def _is_retryable(error: Exception) -> bool:
     """Rate limits and transient server errors are worth retrying; the rest are not."""
-    if not isinstance(error, HttpError):
-        return False
-    status = getattr(error.resp, 'status', None)
-    if status in _RETRYABLE_STATUS:
+    if _is_rate_limit(error):
         return True
-    return status == 403 and b'RateLimitExceeded' in (error.content or b'')
+    return isinstance(error, HttpError) and getattr(error.resp, 'status', None) in _SERVER_ERROR_STATUS
+
+
+def _retry_delay(error: Exception | None, attempt: int) -> float:
+    """Seconds to wait before retry number `attempt` (0-based).
+
+    A Retry-After header wins. Otherwise rate limits back off 5 s → 80 s and
+    server/transport errors 1 s → 10 s, each with up to 1 s of jitter so
+    concurrent runs don't retry in step.
+    """
+    if isinstance(error, HttpError):
+        try:
+            retry_after = float(error.resp.get('retry-after', ''))
+        except (AttributeError, TypeError, ValueError):
+            retry_after = 0.0
+        if retry_after > 0:
+            return min(retry_after, MAX_RETRY_AFTER)
+    if error is not None and _is_rate_limit(error):
+        base = min(5 * 2 ** attempt, 80)
+    else:
+        base = min(2 ** attempt, 10)
+    return base + random.random()
+
+
+def _rate_limit_path(email: str) -> Path:
+    safe = email.replace('/', '_').replace('\\', '_')
+    return Path.home() / '.gmail_cli' / f'rate_limit_{safe}.json'
+
+
+def record_rate_limit(email: str, wait_seconds: float) -> None:
+    """Remember that Gmail throttled this account, so a later run doesn't pile on."""
+    from gmail_cleanup.atomic_io import atomic_write
+
+    retry_at = datetime.now(UTC) + timedelta(seconds=wait_seconds)
+    path = _rate_limit_path(email)
+    with contextlib.suppress(OSError):  # best-effort bookkeeping; never fail a run over it
+        path.parent.mkdir(parents=True, exist_ok=True)
+        atomic_write(path, json.dumps({'retry_at': retry_at.isoformat()}))
+
+
+def rate_limited_until(email: str) -> datetime | None:
+    """When the account's last recorded throttle expires, if that is still in the future."""
+    try:
+        retry_at = datetime.fromisoformat(json.loads(_rate_limit_path(email).read_text())['retry_at'])
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+    return retry_at if retry_at > datetime.now(UTC) else None
 
 # HTTP request settings for unsubscribe link execution
 UNSUB_HTTP_TIMEOUT = 5  # seconds
@@ -297,22 +359,29 @@ class GmailCLI:
         pending = list(message_ids)
         last_start = 0.0
         throttled = 0
+        done = 0
+        show_lines = not sys.stdout.isatty()  # the progress bar only draws on a terminal
         for attempt in range(API_RETRIES + 1):
             retry: list[str] = []
+            errors: list[Exception] = []
 
-            def callback(request_id, response, exception, _retry=retry,
+            def callback(request_id, response, exception, _retry=retry, _errors=errors,
                          _can_retry=attempt < API_RETRIES):
                 if exception is None:
                     results[request_id] = response
                 elif _can_retry and _is_retryable(exception):
                     _retry.append(request_id)
+                    _errors.append(exception)
                     return
                 if on_progress:
                     on_progress()
 
-            for i in range(0, len(pending), BATCH_SIZE):
-                chunk = pending[i:i + BATCH_SIZE]
-                wait = BATCH_INTERVAL - (time.monotonic() - last_start)
+            # Retries go out in smaller batches, at the same quota-unit rate.
+            size = BATCH_SIZE if attempt == 0 else RETRY_BATCH_SIZE
+            interval = size * MESSAGES_GET_UNITS / QUOTA_UNITS_PER_SEC
+            for i in range(0, len(pending), size):
+                chunk = pending[i:i + size]
+                wait = interval - (time.monotonic() - last_start)
                 if wait > 0:
                     time.sleep(wait)
                 last_start = time.monotonic()
@@ -326,14 +395,23 @@ class GmailCLI:
                     )
                 try:
                     batch.execute()
-                except (HttpError, OSError):
+                except (HttpError, OSError) as error:
                     # Whole-batch failure: retry whatever in this chunk wasn't answered.
                     retry.extend(m for m in chunk if m not in results and m not in retry)
+                    errors.append(error)
+                done += len(chunk)
+                if show_lines and attempt == 0 and (done % 500 < size or done >= len(pending)):
+                    print(f"   … fetched {min(done, len(pending)):,}/{len(pending):,}")
             pending = retry
             if not pending:
                 break
             throttled += len(pending)
-            time.sleep(min(2 ** (attempt + 1), 32))
+            delay = max(_retry_delay(e, attempt) for e in errors)
+            if any(_is_rate_limit(e) for e in errors):
+                record_rate_limit(self.user_email, delay)
+                print(f"⏱  Gmail rate limit hit — waiting {delay:.0f}s before retrying "
+                      f"{len(pending):,} message(s)")
+            time.sleep(delay)
 
         if throttled:
             print(f"⏱  {throttled:,} rate-limited/5xx response(s) retried with backoff")
@@ -1406,6 +1484,12 @@ def cmd_autopilot(args):
 
 def _run_autopilot(args):
     from argparse import Namespace
+
+    paused_until = rate_limited_until(args.email)
+    if paused_until:
+        print(f"⏸  Gmail rate-limited this account until "
+              f"{paused_until.astimezone():%H:%M:%S}. Skipping this run; try again after that.")
+        return
 
     days = getattr(args, 'days', 30)
     min_count = getattr(args, 'min_count', 2)

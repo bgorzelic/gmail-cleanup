@@ -124,3 +124,62 @@ def test_retryable_error_gives_up_after_api_retries(monkeypatch):
 def test_403_rate_limit_is_retryable_but_plain_403_is_not():
     assert gmail_cli._is_retryable(_http_error(403, b'{"reason": "userRateLimitExceeded"}'))
     assert not gmail_cli._is_retryable(_http_error(403, b'{"reason": "forbidden"}'))
+
+
+def _rate_error(status=429, content=b'', retry_after=None):
+    from googleapiclient.errors import HttpError
+    resp = MagicMock(status=status, reason='x')
+    resp.get.side_effect = lambda k, d=None: retry_after if k == 'retry-after' else d
+    return HttpError(resp, content)
+
+
+def test_quota_exceeded_403_counts_as_rate_limit():
+    assert gmail_cli._is_rate_limit(_rate_error(403, b'{"reason": "quotaExceeded"}'))
+    assert gmail_cli._is_rate_limit(_rate_error(403, b'{"reason": "userRateLimitExceeded"}'))
+    assert not gmail_cli._is_rate_limit(_rate_error(403, b'{"reason": "insufficientPermissions"}'))
+
+
+def test_retry_after_header_wins_and_is_capped():
+    assert gmail_cli._retry_delay(_rate_error(retry_after='42'), 0) == 42
+    assert gmail_cli._retry_delay(_rate_error(retry_after='99999'), 0) == gmail_cli.MAX_RETRY_AFTER
+
+
+def test_rate_limit_backoff_is_slower_than_server_error_backoff():
+    rate = [gmail_cli._retry_delay(_rate_error(429), n) for n in range(6)]
+    assert 5 <= rate[0] < 6 and 10 <= rate[1] < 11
+    assert 80 <= rate[5] < 81  # capped
+    server = [gmail_cli._retry_delay(_rate_error(503), n) for n in range(6)]
+    assert 1 <= server[0] < 2 and 10 <= server[5] < 11
+
+
+def test_retries_use_smaller_batches(monkeypatch):
+    seen = {}
+
+    def responder(mid):
+        seen[mid] = seen.get(mid, 0) + 1
+        return (None, _rate_error(429)) if seen[mid] == 1 else ({'id': mid}, None)
+
+    gmail, log = _batching_client(monkeypatch, responder)
+    ids = [str(i) for i in range(25)]
+    assert set(gmail.get_messages_metadata(ids, ['From'])) == set(ids)
+    assert [len(b) for b in log] == [25, 10, 10, 5]
+
+
+def test_rate_limit_is_remembered_and_expires(monkeypatch):
+    gmail, _ = _batching_client(monkeypatch, lambda mid: (None, _rate_error(429, retry_after='120')))
+    assert gmail_cli.rate_limited_until('me@example.com') is None
+    gmail.get_messages_metadata(['a'], ['From'])
+    until = gmail_cli.rate_limited_until('me@example.com')
+    assert until is not None
+
+    gmail_cli.record_rate_limit('me@example.com', -5)  # already in the past
+    assert gmail_cli.rate_limited_until('me@example.com') is None
+
+
+def test_autopilot_skips_while_rate_limited(monkeypatch, capsys):
+    gmail_cli.record_rate_limit('me@example.com', 600)
+    ran = []
+    monkeypatch.setattr(gmail_cli, 'cmd_filters', lambda ns: ran.append('filters'))
+    gmail_cli.cmd_autopilot(Namespace(email='me@example.com', dry_run=False, escalate=False))
+    assert ran == []
+    assert 'rate-limited' in capsys.readouterr().out
