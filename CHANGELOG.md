@@ -33,6 +33,21 @@ The "installable" release. First release on PyPI, as **`gmail-inbox-cleanup`**
   deltas could overwrite a record's timestamp; malformed state files raised.
 - Wheel no longer installs a top-level `lists/` directory into site-packages,
   and the sdist no longer sweeps in stray checkouts.
+- **`humans.yaml` senders are never unsubscribed or archived.** The docs promised
+  this, but `unsubscribe` never checked the list. Humans now win over the kill
+  list too.
+- **Removed the `has:list` catch-all filter.** `has:list` is not a Gmail search
+  operator — the filter matched nothing. Delete it from your Gmail filters if a
+  previous version created it.
+- **`filters apply` replaces a grown list's filter instead of stacking another.**
+  Each run that added unsubscribed senders used to leave the older filter behind.
+  Older filters are removed only when the new one covers every sender in them.
+- `filters apply` skips filters whose list is empty (Gmail rejects an empty `from:`).
+- **`status` matches Gmail's UI**: inbox conversations and inbox-only unread, from
+  one API call. It used to page through up to 10,000 message IDs twice and count
+  messages and all-mail unread.
+- Rate-limited or failed API calls are retried and reported instead of silently
+  returning nothing.
 
 ### Added
 - `autopilot --days N` and `--min-count K` to tune the unsubscribe phase
@@ -40,6 +55,13 @@ The "installable" release. First release on PyPI, as **`gmail-inbox-cleanup`**
 - `autopilot --email-summary` emails the run's report to the account itself —
   e.g. a scheduled `--dry-run` preview.
 - `verify --grace-days N`.
+- **Much faster scans that respect Gmail's quota.** `unsubscribe` fetches headers
+  in HTTP batches (25 per request) paced to the documented per-user limit
+  (100 quota units/s), and no longer fetches each sender a second time.
+- **Rate-limit handling**: honors `Retry-After`, backs off 5→80 s with jitter,
+  re-sends throttled items in smaller batches, and remembers a throttle in
+  `~/.gmail_cli/` so `autopilot` skips its run until it expires.
+- Progress lines for non-terminal runs (logs, launchd).
 - Autopilot webhook notification (`notify.webhook_url` in config).
 - `unsubbed.yaml` mapping format `{sender, unsubscribed_at}`; bare-string
   entries are still read.
