@@ -168,7 +168,7 @@ class TestShippedListFiles:
         # Create a temporary repo lists directory
         repo_dir = tmp_path / 'repo_lists'
         repo_dir.mkdir()
-        
+
         # Write repo file
         (repo_dir / 'humans.yaml').write_text('- repo@example.com\n- repo2@example.com\n')
 
@@ -186,7 +186,7 @@ class TestShippedListFiles:
 
         # Test the load function directly
         result = gmail_cli._load_list('humans')
-        
+
         # Should have all entries: repo entries first, then user entries (excluding duplicates)
         assert 'repo@example.com' in result
         assert 'repo2@example.com' in result

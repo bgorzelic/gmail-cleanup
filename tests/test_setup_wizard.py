@@ -1,8 +1,6 @@
 """Tests for setup wizard helpers — no real browser, no real stdin, no network."""
 
 import time
-from pathlib import Path
-from unittest.mock import patch
 
 import gmail_cleanup.setup_wizard as sw
 

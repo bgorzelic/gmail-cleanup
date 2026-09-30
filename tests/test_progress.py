@@ -2,19 +2,18 @@
 
 from __future__ import annotations
 
-from contextlib import contextmanager
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from gmail_cleanup import progress as progress_module
 from gmail_cleanup.progress import (
-    set_mode,
+    advance,
     is_quiet,
     is_verbose,
-    vprint,
     progress_for,
-    advance,
+    set_mode,
+    vprint,
 )
 
 

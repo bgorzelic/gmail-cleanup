@@ -1,6 +1,5 @@
 """Tests for the small helper functions that parse Gmail headers and build queries."""
 
-import pytest
 
 import gmail_cleanup as gmail_cli
 
